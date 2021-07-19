@@ -50,6 +50,17 @@ class RrtTree : public TreeBase<Eigen::Vector4d>
   virtual std::vector<geometry_msgs::Pose> getPathBackToPrevious(std::string targetFrame);
   virtual void memorizeBestBranch();
   void publishNode(Node<StateVec> * node);
+  void publishBestNode();
+  void publishCurrentNode(Node<StateVec> * node);
+  void publishReturnNode(StateVec node);
+  bool checkIfVisited(StateVec state);
+  void visualizeGain(Eigen::Vector3d vec);
+  void visualizeGainRed(Eigen::Vector3d vec);
+  virtual std::vector<geometry_msgs::Pose> getReturnEdge(std::string targetFrame);
+  virtual void updateDegressiveCoeff();
+  bool findShortestPath(StateVec goal);
+  bool setGoal();
+  virtual int getHistorySize();
   double gain(StateVec state);
   std::vector<geometry_msgs::Pose> samplePath(StateVec start, StateVec end,
                                               std::string targetFrame);
@@ -58,6 +69,15 @@ class RrtTree : public TreeBase<Eigen::Vector4d>
   std::stack<StateVec> history_;
   std::vector<StateVec> bestBranchMemory_;
   int g_ID_;
+  int v_ID_= 0;
+  int vr_ID_= 0;
+  int ret_ID_ = 0;
+  StateVec shortest_;
+  StateVec goal_;
+  StateVec firstSeen_;
+  bool boolFirstSeen_;
+  bool callOnce = true;
+  double degressiveCoeff_;
   int iterationCount_;
   std::fstream fileTree_;
   std::fstream filePath_;

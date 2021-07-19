@@ -127,4 +127,16 @@ void nbvInspection::TreeBase<stateVec>::evade(const multiagent_collision_check::
   }
 }
 
+template<typename stateVec>
+void nbvInspection::TreeBase<stateVec>::updateCoeff()
+{
+  updateDegressiveCoeff();
+}
+
+template<typename stateVec>
+double nbvInspection::TreeBase<stateVec>::getBestGainValue()
+{
+  return bestGain_;
+}
+
 #endif

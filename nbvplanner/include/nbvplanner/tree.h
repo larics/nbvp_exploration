@@ -32,6 +32,9 @@ struct Params
   std::vector<double> camPitch_;
   std::vector<double> camHorizontal_;
   std::vector<double> camVertical_;
+  std::vector<double> laserPitch_;
+  std::vector<double> laserHorizontal_;
+  std::vector<double> laserVertical_;
   std::vector<std::vector<Eigen::Vector3d> > camBoundNormals_;
 
   double igProbabilistic_;
@@ -67,6 +70,9 @@ struct Params
   std::string navigationFrame_;
 
   bool log_;
+  bool gainVisualization_;
+  bool updateDegressiveCoeff_;
+  bool returnToOrigin_;
   double log_throttle_;
   double pcl_throttle_;
   double inspection_throttle_;
@@ -116,11 +122,16 @@ class TreeBase
   virtual std::vector<geometry_msgs::Pose> getBestEdge(std::string targetFrame) = 0;
   virtual void clear() = 0;
   virtual std::vector<geometry_msgs::Pose> getPathBackToPrevious(std::string targetFrame) = 0;
+  virtual std::vector<geometry_msgs::Pose> getReturnEdge(std::string targetFrame) = 0;
   virtual void memorizeBestBranch() = 0;
   void setParams(Params params);
   int getCounter();
   bool gainFound();
   void insertPointcloudWithTf(const sensor_msgs::PointCloud2::ConstPtr& pointcloud);
+  virtual void updateDegressiveCoeff() = 0;
+  virtual int getHistorySize() = 0;
+  void updateCoeff();
+  double getBestGainValue();
 };
 }
 

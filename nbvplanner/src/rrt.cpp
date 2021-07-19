@@ -344,18 +344,29 @@ void nbvInspection::RrtTree::iterate(int iterations)
           params_.boundingBox_)
       && !multiagent::isInCollision(newParent->state_, newState, params_.boundingBox_, segments_)) {
     // Sample the new orientation
-    newState[3] = 2.0 * M_PI * (((double) rand()) / ((double) RAND_MAX) - 0.5);
+    //newState[3] = 2.0 * M_PI * (((double) rand()) / ((double) RAND_MAX) - 0.5);
+
+    //MAV orientation towards next point .. atan2(dy,dx)
+    newState[3] = atan2(direction[1], direction[0]);
+
     // Create new node and insert into tree
     nbvInspection::Node<StateVec> * newNode = new nbvInspection::Node<StateVec>;
     newNode->state_ = newState;
     newNode->parent_ = newParent;
     newNode->distance_ = newParent->distance_ + direction.norm();
     newParent->children_.push_back(newNode);
+    /*
     newNode->gain_ = newParent->gain_
         + gain(newNode->state_) * exp(-params_.degressiveCoeff_ * newNode->distance_);
+    */
+    if(!params_.updateDegressiveCoeff_){
+      degressiveCoeff_ = params_.degressiveCoeff_;
+    }
+  
+    newNode->gain_ = newParent->gain_
+        + gain(newNode->state_) * exp(-degressiveCoeff_* newNode->distance_);
 
     kd_insert3(kdTree_, newState.x(), newState.y(), newState.z(), newNode);
-
     // Display new node
     publishNode(newNode);
 
@@ -446,15 +457,22 @@ void nbvInspection::RrtTree::initialize()
       newNode->parent_ = newParent;
       newNode->distance_ = newParent->distance_ + direction.norm();
       newParent->children_.push_back(newNode);
+      /*
       newNode->gain_ = newParent->gain_
           + gain(newNode->state_) * exp(-params_.degressiveCoeff_ * newNode->distance_);
-
+          */
+      if(!params_.updateDegressiveCoeff_){
+        degressiveCoeff_ = params_.degressiveCoeff_;
+      }
+      newNode->gain_ = newParent->gain_
+          + gain(newNode->state_) * exp(-degressiveCoeff_ * newNode->distance_);
       kd_insert3(kdTree_, newState.x(), newState.y(), newState.z(), newNode);
 
       // Display new node
       publishNode(newNode);
 
       // Update best IG and node if applicable
+      //
       if (newNode->gain_ > bestGain_) {
         bestGain_ = newNode->gain_;
         bestNode_ = newNode;
@@ -498,15 +516,209 @@ std::vector<geometry_msgs::Pose> nbvInspection::RrtTree::getBestEdge(std::string
 // This function returns the first edge of the best branch
   std::vector<geometry_msgs::Pose> ret;
   nbvInspection::Node<StateVec> * current = bestNode_;
+  ROS_INFO("Best Gain: %4.15f", bestNode_->gain_);
+  publishBestNode();
+  //Resursive method for finding next point for UAV to move towards 
   if (current->parent_ != NULL) {
     while (current->parent_ != rootNode_ && current->parent_ != NULL) {
       current = current->parent_;
     }
+    publishCurrentNode(current);
     ret = samplePath(current->parent_->state_, current->state_, targetFrame);
     history_.push(current->parent_->state_);
     exact_root_ = current->state_;
   }
   return ret;
+}
+
+//Function for returning to origin
+std::vector<geometry_msgs::Pose> nbvInspection::RrtTree::getReturnEdge(std::string targetFrame)
+{
+  if(callOnce){
+    callOnce = setGoal();  //false
+  }
+  bool foundShortest = false;
+  std::vector<geometry_msgs::Pose> ret;
+  if (history_.empty()) {
+    ROS_INFO("History empty!");
+    exact_root_ = goal_;
+    return ret;
+  }
+  foundShortest = findShortestPath(goal_);
+  if(boolFirstSeen_){
+    shortest_ = firstSeen_;
+  } else {
+    ROS_INFO("Shortest not found, returning to previous point!");
+    shortest_ = history_.top();
+    }
+  publishReturnNode(shortest_);
+  ret = samplePath(root_, shortest_, targetFrame);
+  history_.pop();
+  if(history_.empty()){
+    exact_root_ = goal_;
+  }
+  return ret;
+}
+
+//Recursive function returns first node from origin that is collision free
+//Nodes from first found to MAV root are removed
+bool nbvInspection::RrtTree::findShortestPath(StateVec goal){
+  //Find shortest path to origin
+  bool found;
+  boolFirstSeen_ = false;
+  if (history_.empty()) {
+    return false;
+  }
+
+  StateVec newState;
+  StateVec state = history_.top();
+  history_.pop();
+
+  //Recursion
+  found = findShortestPath(goal_);
+
+  Eigen::Vector3d origin(root_[0], root_[1], root_[2]);
+  Eigen::Vector3d direction(state[0] - origin[0], state[1] - origin[1],
+                              state[2] - origin[2]);
+  newState[0] = origin[0] + direction[0];
+  newState[1] = origin[1] + direction[1];
+  newState[2] = origin[2] + direction[2];
+    if (volumetric_mapping::OctomapManager::CellStatus::kFree
+    == manager_->getLineStatusBoundingBox(
+        origin, direction + origin + direction.normalized() * params_.dOvershoot_,
+        params_.boundingBox_)) {
+      if(!boolFirstSeen_){
+        firstSeen_ = state;
+        boolFirstSeen_ = true;
+        found = true;
+        history_.push(state);
+      }
+    }
+    //remove remaining nodes from stack
+    if(!found){
+      history_.push(state);
+    }
+  return found;
+}
+
+bool nbvInspection::RrtTree::setGoal(){
+  if (history_.empty()) {
+    return true;
+  }
+  StateVec state = history_.top();
+  history_.pop();
+  bool foundLast = setGoal();
+
+  if(foundLast){
+    goal_ = state;
+    ROS_INFO("Goal: X = %f, Y = %f, Z = %f, Yaw = %f",
+              goal_[0], goal_[1], goal_[2], goal_[3]);
+  }
+  history_.push(state);
+  return false;
+}
+
+
+int nbvInspection::RrtTree::getHistorySize(){
+  return history_.size();
+}
+
+void nbvInspection::RrtTree::updateDegressiveCoeff(){
+  double *dV;
+  //Calculate volume derivation
+  //dV[0] = dVfree ; dV[1] = dVoccupied
+  dV = manager_->getDerivation();
+  double totalVolume = (params_.maxX_ - params_.minX_) * 
+                       (params_.maxY_ - params_.minY_) * 
+                       (1.0 + params_.maxZ_ - params_.minZ_); 
+
+/*
+
+... TO DO ...
+
+*/
+
+  degressiveCoeff_ = params_.degressiveCoeff_;
+  ROS_INFO("[STATUS]Degressive Coeff.: %f", degressiveCoeff_);
+
+/*
+    if(params_.updateDegressiveCoeff){
+      std::string logFilePath = ros::package::getPath("nbvplanner") + "/Degressive Coeff/";
+      system(("mkdir -p " + logFilePath).c_str());
+      logFilePath += "/";
+
+      //setting path..
+      std::ofstream fileDegCoeff((logFilePath + "degressiveCoeff.txt").c_str(), std::ios::app | std::ios::out);
+      std::ofstream fileStep((logFilePath + "step.txt").c_str(), std::ios::app | std::ios::out);
+      //writing data..
+      fileDegCoeff << degressiveCoeff_ << "\n";
+      fileStep << iterationCount_ << "\n";
+    }
+*/
+}
+
+void nbvInspection::RrtTree::visualizeGain(Eigen::Vector3d vec)
+{
+  visualization_msgs::Marker p;
+  p.header.stamp = ros::Time::now();
+  p.header.seq = v_ID_;
+  p.header.frame_id = params_.navigationFrame_;
+  p.id = v_ID_;
+  v_ID_++;
+  p.ns = "vp_tree";
+  p.type = visualization_msgs::Marker::SPHERE;
+  p.action = visualization_msgs::Marker::ADD;
+  p.pose.position.x = vec[0];
+  p.pose.position.y = vec[1];
+  p.pose.position.z = vec[2];
+  tf::Quaternion quat;
+  quat.setEuler(0.0, 0.0, 1.0);
+  p.pose.orientation.x = quat.x();
+  p.pose.orientation.y = quat.y();
+  p.pose.orientation.z = quat.z();
+  p.pose.orientation.w = quat.w();
+  p.scale.x = 0.1;
+  p.scale.y = 0.1;
+  p.scale.z = 0.1;
+  p.color.r = 0.0;
+  p.color.g = 0.0;
+  p.color.b = 1.0;
+  p.color.a = 0.6;
+  p.lifetime = ros::Duration(10.0);
+  p.frame_locked = false;
+  params_.inspectionPath_.publish(p);
+}
+
+void nbvInspection::RrtTree::visualizeGainRed(Eigen::Vector3d vec)
+{
+  visualization_msgs::Marker p;
+  p.header.stamp = ros::Time::now();
+  p.header.seq = vr_ID_;
+  p.header.frame_id = params_.navigationFrame_;
+  p.id = vr_ID_;
+  vr_ID_++;
+  p.ns = "vp_tree";
+  p.type = visualization_msgs::Marker::SPHERE;
+  p.action = visualization_msgs::Marker::ADD;
+  p.pose.position.x = vec[0];
+  p.pose.position.y = vec[1];
+  p.pose.position.z = vec[2];
+  tf::Quaternion quat;
+  quat.setEuler(0.0, 0.0, 1.0);
+  p.pose.orientation.x = quat.x();
+  p.pose.orientation.y = quat.y();
+  p.pose.orientation.z = quat.z();
+  p.pose.orientation.w = quat.w();
+  p.scale.x = 0.1;
+  p.scale.y = 0.1;
+  p.scale.z = 0.1;
+  p.color.r = 1.0;
+  p.color.g = 0.0;
+  p.color.b = 0.0;
+  p.color.a = 0.6;
+  p.lifetime = ros::Duration(10.0);
+  p.frame_locked = false;
+  params_.inspectionPath_.publish(p);
 }
 
 double nbvInspection::RrtTree::gain(StateVec state)
@@ -516,6 +728,13 @@ double nbvInspection::RrtTree::gain(StateVec state)
   const double disc = manager_->getResolution();
   Eigen::Vector3d origin(state[0], state[1], state[2]);
   Eigen::Vector3d vec;
+  Eigen::Vector3d pom;
+  Eigen::Vector3d pom2;
+  Eigen::Vector4d rootPom;
+  rootPom[0] = root_[0];
+  rootPom[1] = root_[1];
+  rootPom[2] = root_[2] - 0.7; //sensor offset error correction
+  rootPom[3] = root_[3];
   double rangeSq = pow(params_.gainRange_, 2.0);
 // Iterate over all nodes within the allowed distance
   for (vec[0] = std::max(state[0] - params_.gainRange_, params_.minX_);
@@ -529,29 +748,65 @@ double nbvInspection::RrtTree::gain(StateVec state)
         if (dir.transpose().dot(dir) > rangeSq) {
           continue;
         }
-        bool insideAFieldOfView = false;
-        // Check that voxel center is inside one of the fields of view.
-        for (typename std::vector<std::vector<Eigen::Vector3d>>::iterator itCBN = params_
-            .camBoundNormals_.begin(); itCBN != params_.camBoundNormals_.end(); itCBN++) {
-          bool inThisFieldOfView = true;
-          for (typename std::vector<Eigen::Vector3d>::iterator itSingleCBN = itCBN->begin();
-              itSingleCBN != itCBN->end(); itSingleCBN++) {
-            Eigen::Vector3d normal = Eigen::AngleAxisd(state[3], Eigen::Vector3d::UnitZ())
-                * (*itSingleCBN);
-            double val = dir.dot(normal.normalized());
-            if (val < SQRT2 * disc) {
-              inThisFieldOfView = false;
-              break;
-            }
-          }
-          if (inThisFieldOfView) {
-            insideAFieldOfView = true;
-            break;
-          }
+        //Calculating angle between two vectors with origin in root_
+        //Shifting both vectors in same origin ( root_ )
+        //MAV is located in root_ when new nodes are being calculated
+        int i;
+        for(i = 0; i < sizeof(vec)/sizeof(vec[0]); i++){
+          pom2[i] = vec[i] - rootPom[i];
+          pom[i] = pom2[i];
         }
-        if (!insideAFieldOfView) {
+        pom[2] = rootPom[2];
+
+        double minRange = sqrt(pow(pom2[0],2) + pow(pom2[1],2) + pow(pom2[2],2));
+        if (minRange < 1.0){
           continue;
         }
+        //Math equations for angle between two vectors in 3D space
+        //Angle between vector and its orthogonal projection on xy-plane
+        double num = pom2[0]*pom[0] + pom2[1]*pom[1] + pom2[2]*pom[2];
+        double denum = sqrt( pow(pom2[0],2) + pow(pom2[1],2) + pow(pom2[2],2) ) 
+                      * sqrt( pow(pom[0],2) + pow(pom[1],2) + pow(pom[2],2) );
+        double normalAngle = acos(num/denum) * 180 / M_PI;
+        double x2 = pom[0] * cos(-rootPom[3]) - pom[1] * sin(-rootPom[3]);
+        double y2 = pom[0] * sin(-rootPom[3]) + pom[1] * cos(-rootPom[3]);
+
+        //Recommended to set pitch for VLP-16 in model config to see the floor
+        //default pitch is set to 10 deg
+          bool aboveZ;
+          bool pitchForward;
+          //Checking whether RRT is in first or fourth quadrant with root as new local origin
+          //Laser points towards x axis and has a pitch of 10.0 degrees by default
+          if ( ((x2 > rootPom[0]) && (y2 > rootPom[1]) ) || ((x2 > rootPom[0]) && (y2 < rootPom[1])) ) {
+            pitchForward = true;
+          } else { 
+              pitchForward = false;
+            }
+          //Checking if dot is above/below xy-plane
+          if (vec[2] > rootPom[2]){
+            aboveZ = true;
+          } else {
+              aboveZ = false;
+            }
+            //Calculating new angles with pitch included
+            if(pitchForward && aboveZ) {
+              if (normalAngle > (params_.laserVertical_[0]/2 - params_.laserPitch_[0]) ) {
+                continue;
+              }
+            } else if (pitchForward && !aboveZ){
+                if(normalAngle > (params_.laserVertical_[0]/2 + params_.laserPitch_[0]) ) {
+                  continue;
+                }
+            } else if (!pitchForward && aboveZ){
+                if(normalAngle > (params_.laserVertical_[0]/2 + params_.laserPitch_[0]) ) {
+                  continue;
+                }
+            } else if (!pitchForward && !aboveZ) {
+                if(normalAngle > (params_.laserVertical_[0]/2 - params_.laserPitch_[0]) ) {
+                  continue;
+                }
+              }
+
         // Check cell status and add to the gain considering the corresponding factor.
         double probability;
         volumetric_mapping::OctomapManager::CellStatus node = manager_->getCellProbabilityPoint(
@@ -561,7 +816,7 @@ double nbvInspection::RrtTree::gain(StateVec state)
           if (volumetric_mapping::OctomapManager::CellStatus::kOccupied
               != this->manager_->getVisibility(origin, vec, false)) {
             gain += params_.igUnmapped_;
-            // TODO: Add probabilistic gain
+            // ETHZCommentTODO: Add probabilistic gain
             // gain += params_.igProbabilistic_ * PROBABILISTIC_MODEL(probability);
           }
         } else if (node == volumetric_mapping::OctomapManager::CellStatus::kOccupied) {
@@ -569,7 +824,7 @@ double nbvInspection::RrtTree::gain(StateVec state)
           if (volumetric_mapping::OctomapManager::CellStatus::kOccupied
               != this->manager_->getVisibility(origin, vec, false)) {
             gain += params_.igOccupied_;
-            // TODO: Add probabilistic gain
+            // ETHZcomment:TODO: Add probabilistic gain
             // gain += params_.igProbabilistic_ * PROBABILISTIC_MODEL(probability);
           }
         } else {
@@ -577,8 +832,18 @@ double nbvInspection::RrtTree::gain(StateVec state)
           if (volumetric_mapping::OctomapManager::CellStatus::kOccupied
               != this->manager_->getVisibility(origin, vec, false)) {
             gain += params_.igFree_;
-            // TODO: Add probabilistic gain
+            // ETHZcomment:TODO: Add probabilistic gain
             // gain += params_.igProbabilistic_ * PROBABILISTIC_MODEL(probability);
+          }
+        }
+        //Gain visualization
+        if(params_.gainVisualization_){
+          if(node == volumetric_mapping::OctomapManager::CellStatus::kUnknown &&
+            volumetric_mapping::OctomapManager::CellStatus::kOccupied
+              != this->manager_->getVisibility(origin, vec, false)){
+            visualizeGainRed(vec);
+          } else {
+            visualizeGain(vec);
           }
         }
       }
@@ -586,8 +851,10 @@ double nbvInspection::RrtTree::gain(StateVec state)
   }
 // Scale with volume
   gain *= pow(disc, 3.0);
+
+//Area exploration
 // Check the gain added by inspectable surface
-  if (mesh_) {
+/*  if (mesh_) {
     tf::Transform transform;
     transform.setOrigin(tf::Vector3(state.x(), state.y(), state.z()));
     tf::Quaternion quaternion;
@@ -595,6 +862,8 @@ double nbvInspection::RrtTree::gain(StateVec state)
     transform.setRotation(quaternion);
     gain += params_.igArea_ * mesh_->computeInspectableArea(transform);
   }
+  //-------------redundant--------
+  */
   return gain;
 }
 
@@ -706,6 +975,102 @@ void nbvInspection::RrtTree::publishNode(Node<StateVec> * node)
     }
     fileTree_ << node->parent_->gain_ << "\n";
   }
+}
+
+void nbvInspection::RrtTree::publishBestNode()
+{
+  visualization_msgs::Marker p;
+  p.header.stamp = ros::Time::now();
+  p.header.seq = g_ID_;
+  p.header.frame_id = params_.navigationFrame_;
+  p.id = g_ID_;
+  g_ID_++;
+  p.ns = "vp_tree";
+  p.type = visualization_msgs::Marker::SPHERE;
+  p.action = visualization_msgs::Marker::ADD;
+  p.pose.position.x = bestNode_->state_[0];
+  p.pose.position.y = bestNode_->state_[1];
+  p.pose.position.z = bestNode_->state_[2];
+  tf::Quaternion quat;
+  quat.setEuler(0.0, 0.0, bestNode_->state_[3]);
+  p.pose.orientation.x = quat.x();
+  p.pose.orientation.y = quat.y();
+  p.pose.orientation.z = quat.z();
+  p.pose.orientation.w = quat.w();
+  p.scale.x = std::max(bestNode_->gain_ / 10.0, 0.5);
+  p.scale.y = 0.5;
+  p.scale.z = 0.5;
+  p.color.r = 1.0;
+  p.color.g = 1.0;
+  p.color.b = 0.0;
+  p.color.a = 1.0;
+  p.lifetime = ros::Duration(10.0);
+  p.frame_locked = false;
+  params_.inspectionPath_.publish(p);
+}
+
+void nbvInspection::RrtTree::publishCurrentNode(Node<StateVec> * node)
+{
+  visualization_msgs::Marker p;
+  p.header.stamp = ros::Time::now();
+  p.header.seq = g_ID_;
+  p.header.frame_id = params_.navigationFrame_;
+  p.id = g_ID_;
+  g_ID_++;
+  p.ns = "vp_tree";
+  p.type = visualization_msgs::Marker::SPHERE;
+  p.action = visualization_msgs::Marker::ADD;
+  p.pose.position.x = node->state_[0];
+  p.pose.position.y = node->state_[1];
+  p.pose.position.z = node->state_[2];
+  tf::Quaternion quat;
+  quat.setEuler(0.0, 0.0, node->state_[3]);
+  p.pose.orientation.x = quat.x();
+  p.pose.orientation.y = quat.y();
+  p.pose.orientation.z = quat.z();
+  p.pose.orientation.w = quat.w();
+  p.scale.x = std::max(node->gain_ / 10.0, 0.5);
+  p.scale.y = 0.5;
+  p.scale.z = 0.5;
+  p.color.r = 0.0;
+  p.color.g = 1.0;
+  p.color.b = 0.0;
+  p.color.a = 1.0;
+  p.lifetime = ros::Duration(10.0);
+  p.frame_locked = false;
+  params_.inspectionPath_.publish(p);
+}
+
+void nbvInspection::RrtTree::publishReturnNode(StateVec node)
+{
+  visualization_msgs::Marker p;
+  p.header.stamp = ros::Time::now();
+  p.header.seq = ret_ID_;
+  p.header.frame_id = params_.navigationFrame_;
+  p.id = ret_ID_;
+  ret_ID_++;
+  p.ns = "vp_tree";
+  p.type = visualization_msgs::Marker::SPHERE;
+  p.action = visualization_msgs::Marker::ADD;
+  p.pose.position.x = node[0];
+  p.pose.position.y = node[1];
+  p.pose.position.z = node[2];
+  tf::Quaternion quat;
+  quat.setEuler(0.0, 0.0, node[3]);
+  p.pose.orientation.x = quat.x();
+  p.pose.orientation.y = quat.y();
+  p.pose.orientation.z = quat.z();
+  p.pose.orientation.w = quat.w();
+  p.scale.x = 0.5;
+  p.scale.y = 0.5;
+  p.scale.z = 0.5;
+  p.color.r = 1.0;
+  p.color.g = 0.0;
+  p.color.b = 0.0;
+  p.color.a = 1.0;
+  p.lifetime = ros::Duration(50.0);
+  p.frame_locked = false;
+  params_.inspectionPath_.publish(p);
 }
 
 std::vector<geometry_msgs::Pose> nbvInspection::RrtTree::samplePath(StateVec start, StateVec end,

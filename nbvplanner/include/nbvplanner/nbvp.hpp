@@ -24,10 +24,16 @@
 
 #include <nbvplanner/nbvp.h>
 
+#include <iostream>
+#include <ios>
+
+#include <string.h>
+
 // Convenience macro to get the absolute yaw difference
 #define ANGABS(x) (fmod(fabs(x),2.0*M_PI)<M_PI?fmod(fabs(x),2.0*M_PI):2.0*M_PI-fmod(fabs(x),2.0*M_PI))
 
 using namespace Eigen;
+using namespace std;
 
 template<typename stateVec>
 nbvInspection::nbvPlanner<stateVec>::nbvPlanner(const ros::NodeHandle& nh,
@@ -39,6 +45,9 @@ nbvInspection::nbvPlanner<stateVec>::nbvPlanner(const ros::NodeHandle& nh,
   manager_ = new volumetric_mapping::OctomapManager(nh_, nh_private_);
 
   // Set up the topics and services
+  volumeService_ = nh_.advertiseService("volume_service",
+                                         &nbvInspection::nbvPlanner<stateVec>::volumeCallback,
+                                         this);
   params_.inspectionPath_ = nh_.advertise<visualization_msgs::Marker>("inspectionPath", 1000);
   evadePub_ = nh_.advertise<multiagent_collision_check::Segment>("/evasionSegment", 100);
   plannerService_ = nh_.advertiseService("nbvplanner",
@@ -62,6 +71,7 @@ nbvInspection::nbvPlanner<stateVec>::nbvPlanner(const ros::NodeHandle& nh,
   }
 
   // Precompute the camera field of view boundaries. The normals of the separating hyperplanes are stored
+  /*
   for (int i = 0; i < params_.camPitch_.size(); i++) {
     double pitch = M_PI * params_.camPitch_[i] / 180.0;
     double camTop = (pitch - M_PI * params_.camVertical_[i] / 360.0) + M_PI / 2.0;
@@ -87,6 +97,7 @@ nbvInspection::nbvPlanner<stateVec>::nbvPlanner(const ros::NodeHandle& nh,
     // ROS_INFO("leftR: (%2.2f, %2.2f, %2.2f)", leftR[0], leftR[1], leftR[2]);
     params_.camBoundNormals_.push_back(camBoundNormals);
   }
+  */
 
   // Load mesh from STL file if provided.
   std::string ns = ros::this_node::getName();
@@ -157,16 +168,37 @@ void nbvInspection::nbvPlanner<stateVec>::odomCallback(
 }
 
 template<typename stateVec>
+bool nbvInspection::nbvPlanner<stateVec>::volumeCallback(nbvplanner::volume_srv::Request& req,
+                                                         nbvplanner::volume_srv::Response& res)
+{
+  double timeNow = ros::Time::now().toSec();
+  double totalVolume = (params_.maxX_ - params_.minX_) * 
+                       (params_.maxY_ - params_.minY_) * 
+                       (1.0 + params_.maxZ_ - params_.minZ_); 
+
+  //Function for displaying & logging change in free/occupied/undiscovered volume
+  double volumes[2];
+  manager_->calculateVolume(volumes);
+  manager_->printVolume(totalVolume, volumes, timeNow, params_.log_); 
+  if(params_.updateDegressiveCoeff_){
+    manager_->calculateDerivation(volumes, timeNow);
+    tree_->updateCoeff();
+  }
+
+
+  return true;
+}
+
+template<typename stateVec>
 bool nbvInspection::nbvPlanner<stateVec>::plannerCallback(nbvplanner::nbvp_srv::Request& req,
                                                           nbvplanner::nbvp_srv::Response& res)
 {
-  ros::Time computationTime = ros::Time::now();
+  ros::Time computationStartTime = ros::Time::now();
   // Check that planner is ready to compute path.
   if (!ros::ok()) {
     ROS_INFO_THROTTLE(1, "Exploration finished. Not planning any further moves.");
     return true;
   }
-
   if (!ready_) {
     ROS_ERROR_THROTTLE(1, "Planner not set up: Planner not ready!");
     return true;
@@ -181,17 +213,41 @@ bool nbvInspection::nbvPlanner<stateVec>::plannerCallback(nbvplanner::nbvp_srv::
   }
   res.path.clear();
 
+  //Function for returning to origin
+  if(returnToOrigin && ros::ok()){
+    ROS_INFO_STREAM("Returning to origin..." << "(" << tree_->getHistorySize() << ")");
+    res.path = tree_->getReturnEdge(req.header.frame_id);
+      if(tree_->getHistorySize() == 0){
+        ROS_INFO("Successfully returned to origin. Finding best gain...");
+        returnToOrigin = false;
+      }
+    return true;
+  }
+
   // Clear old tree and reinitialize.
   tree_->clear();
   tree_->initialize();
   vector_t path;
   // Iterate the tree construction method.
   int loopCount = 0;
+  double computationTime1, computationTime2;
+  ros::Time computationStartTime1 = ros::Time::now();
   while ((!tree_->gainFound() || tree_->getCounter() < params_.initIterations_) && ros::ok()) {
-    if (tree_->getCounter() > params_.cuttoffIterations_) {
-      ROS_INFO("No gain found, shutting down");
-      ros::shutdown();
-      return true;
+    //if (tree_->gain() < pow(10,6)){ 
+    if (tree_->getCounter() > params_.cuttoffIterations_){
+        double totalVolume = (params_.maxX_ - params_.minX_) * 
+                             (params_.maxY_ - params_.minY_) * 
+                             (1.0 + params_.maxZ_ - params_.minZ_);
+      if(params_.returnToOrigin_ && !manager_->checkExploredVolumeShare(totalVolume, 0.70)){
+        ROS_INFO("No gain found and more than 30 percent undiscovered, returning to origin");
+        res.path = tree_->getReturnEdge((req.header.frame_id));
+        returnToOrigin = true;
+        return true;
+      } else {
+          ROS_INFO("No gain found, shutting down");
+          ros::shutdown();
+          return true;
+        }
     }
     if (loopCount > 1000 * (tree_->getCounter() + 1)) {
       ROS_INFO_THROTTLE(1, "Exceeding maximum failed iterations, return to previous point!");
@@ -201,6 +257,26 @@ bool nbvInspection::nbvPlanner<stateVec>::plannerCallback(nbvplanner::nbvp_srv::
     tree_->iterate(1);
     loopCount++;
   }
+  computationTime1 = (ros::Time::now() - computationStartTime1).toSec();
+  ROS_INFO("While loop lasted %6.15fs", computationTime1);
+
+  //Function for detecting if gain is far away, used for history tracking method
+  ros::Time computationStartTime2 = ros::Time::now();
+    if(params_.returnToOrigin_){
+      if(tree_->getBestGainValue() < pow(10,-3)) {
+        double totalVolume = (params_.maxX_ - params_.minX_) * 
+               (params_.maxY_ - params_.minY_) * 
+               (3.0- params_.minZ_);  //params_.maxZ_
+        if( !manager_->checkExploredVolumeShare(totalVolume, 0.70)){
+          ROS_INFO("Gain less than 1e-3 and more than 30 percent undiscovered, returning to origin");
+          res.path = tree_->getReturnEdge((req.header.frame_id));
+          returnToOrigin = true;
+          return true;
+        }
+      }
+    }
+  computationTime2 = (ros::Time::now() - computationStartTime2).toSec();
+  ROS_INFO("Function for gain lasted %6.15fs", computationTime2);
   // Extract the best edge.
   res.path = tree_->getBestEdge(req.header.frame_id);
 
@@ -214,7 +290,32 @@ bool nbvInspection::nbvPlanner<stateVec>::plannerCallback(nbvplanner::nbvp_srv::
     segment.poses.push_back(res.path.back());
   }
   evadePub_.publish(segment);
-  ROS_INFO("Path computation lasted %2.3fs", (ros::Time::now() - computationTime).toSec());
+
+  double computationTime;
+  double timeNow = ros::Time::now().toSec();
+  computationTime = (ros::Time::now() - computationStartTime).toSec();
+  ROS_INFO("Path computation lasted %6.15fs",computationTime);
+  /*
+  if(params_.log) {
+    //std::ofstream rosTimeLog("~/DataLog/rosTime.txt", std::ios::app | std::ios::out);
+    //rosTimeLog << ros::Time::now() << "\n";
+    std::ofstream computationTimeLog("~/DataLog/computationTime.txt", std::ios::app | std::ios::out);
+    computationTimeLog << computationTime << "\n";
+
+    time_t rawtime;
+    struct tm * ptm;
+    time(&rawtime);
+    ptm = gmtime(&rawtime);
+    std::string logFilePath = ros::package::getPath("nbvplanner") + "/Computation Data/";
+    system(("mkdir -p " + logFilePath).c_str());
+    logFilePath += "/";
+    //setting path..
+    std::ofstream computationTimeLog((logFilePath + "computationTime.txt").c_str(), std::ios:: app | std::ios::out);
+    //writing data..
+    computationTimeLog << computationTime << "\n";
+  }
+  */
+
   return true;
 }
 
@@ -248,6 +349,21 @@ bool nbvInspection::nbvPlanner<stateVec>::setParams()
     ROS_WARN("No camera vertical opening specified. Looking for %s. Default is 60deg.",
              (ns + "/system/camera/vertical").c_str());
   }
+  params_.laserPitch_ = {10.0};
+  if (!ros::param::get(ns + "/system/laser/pitch", params_.laserPitch_)) {
+    ROS_WARN("No laser pitch specified. Looking for %s. Default is 10.0deg.",
+             (ns + "/system/laser/pitch").c_str());
+  }
+  params_.laserHorizontal_ = {360.0};
+  if (!ros::param::get(ns + "/system/laser/horizontal", params_.laserHorizontal_)) {
+    ROS_WARN("No laser horizontal opening specified. Looking for %s. Default is 360deg.",
+             (ns + "/system/laser/horizontal").c_str());
+  }
+  params_.laserVertical_ = {30.0};
+  if (!ros::param::get(ns + "/system/laser/vertical", params_.laserVertical_)) {
+    ROS_WARN("No laser vertical opening specified. Looking for %s. Default is 30deg.",
+             (ns + "/system/laser/vertical").c_str());
+  }
   if(params_.camPitch_.size() != params_.camHorizontal_.size() ||params_.camPitch_.size() != params_.camVertical_.size() ){
     ROS_WARN("Specified camera fields of view unclear: Not all parameter vectors have same length! Setting to default.");
     params_.camPitch_.clear();
@@ -257,6 +373,17 @@ bool nbvInspection::nbvPlanner<stateVec>::setParams()
     params_.camVertical_.clear();
     params_.camVertical_ = {60.0};
   }
+
+  if(params_.laserPitch_.size() != params_.laserHorizontal_.size() ||params_.laserPitch_.size() != params_.laserVertical_.size() ){
+    ROS_WARN("Specified laser fields of view unclear: Not all parameter vectors have same length! Setting to default.");
+    params_.laserPitch_.clear();
+    params_.laserPitch_ = {7.56};
+    params_.laserHorizontal_.clear();
+    params_.laserHorizontal_ = {360.0};
+    params_.laserVertical_.clear();
+    params_.laserVertical_ = {30.0};
+  }
+  
   params_.igProbabilistic_ = 0.0;
   if (!ros::param::get(ns + "/nbvp/gain/probabilistic", params_.igProbabilistic_)) {
     ROS_WARN(
@@ -373,6 +500,18 @@ bool nbvInspection::nbvPlanner<stateVec>::setParams()
   params_.log_ = false;
   if (!ros::param::get(ns + "/nbvp/log/on", params_.log_)) {
     ROS_WARN("Logging is off by default. Turn on with %s: true", (ns + "/nbvp/log/on").c_str());
+  }
+  params_.gainVisualization_ = false;
+  if (!ros::param::get(ns + "/nbvp/gain/visualization", params_.gainVisualization_)) {
+    ROS_WARN("Gain visualization is off by default. Turn on with %s: true", (ns + "/nbvp/gain/visualization").c_str());
+  }
+    params_.updateDegressiveCoeff_ = false;
+  if (!ros::param::get(ns + "/nbvp/gain/update_deg_coeff", params_.updateDegressiveCoeff_)) {
+    ROS_WARN("Degressive coeff update is off by default. Turn on with %s: true", (ns + "/nbvp/gain/update_deg_coeff").c_str());
+  }
+    params_.returnToOrigin_ = false;
+  if (!ros::param::get(ns + "/nbvp/tree/return_to_origin", params_.returnToOrigin_)) {
+    ROS_WARN("Return to orign is off by default. Turn on with %s: true", (ns + "/nbvp/tree/return_to_origin").c_str());
   }
   params_.log_throttle_ = 0.5;
   if (!ros::param::get(ns + "/nbvp/log/throttle", params_.log_throttle_)) {
