@@ -31,12 +31,13 @@
 #include <mav_msgs/conversions.h>
 #include <mav_msgs/default_topics.h>
 #include <nbvplanner/nbvp_srv.h>
+#include <nbvplanner/volume_srv.h>
 
 int main(int argc, char** argv)
 {
   ros::init(argc, argv, "exploration");
   ros::NodeHandle nh;
-  ros::Publisher trajectory_pub = nh.advertise < trajectory_msgs::MultiDOFJointTrajectory
+  ros::Publisher trajectory_pub = nh.advertise < trajectory_msgs::MultiDOFJointTrajectoryPoint
       > (mav_msgs::default_topics::COMMAND_TRAJECTORY, 5);
   ROS_INFO("Started exploration");
 
@@ -66,6 +67,9 @@ int main(int argc, char** argv)
               (ns + "/nbvp/dt").c_str());
     return -1;
   }
+  // Get parent frame id
+  std::string parent_frame_id = " ";
+  nh.param<std::string>("exploration/parent_frame_id", parent_frame_id, "map"); 
 
   static int n_seq = 0;
 
@@ -73,46 +77,46 @@ int main(int argc, char** argv)
   mav_msgs::EigenTrajectoryPoint trajectory_point;
   trajectory_msgs::MultiDOFJointTrajectoryPoint trajectory_point_msg;
 
-  // Wait for 5 seconds to let the Gazebo GUI show up.
-  ros::Duration(5.0).sleep();
-
   // This is the initialization motion, necessary that the known free space allows the planning
   // of initial paths.
   ROS_INFO("Starting the planner: Performing initialization motion");
-  for (double i = 0; i <= 1.0; i = i + 0.1) {
-    nh.param<double>("wp_x", trajectory_point.position_W.x(), 0.0);
-    nh.param<double>("wp_y", trajectory_point.position_W.y(), 0.0);
-    nh.param<double>("wp_z", trajectory_point.position_W.z(), 1.0);
+  for (double i = 0; i <= 0.5; i = i + 0.1) {
+    nh.param<double>("exploration/wp_x", trajectory_point.position_W.x(), 0.0);
+    nh.param<double>("exploration/wp_y", trajectory_point.position_W.y(), 0.0);
+    nh.param<double>("exploration/wp_z", trajectory_point.position_W.z(), 1.0);
     samples_array.header.seq = n_seq;
     samples_array.header.stamp = ros::Time::now();
     samples_array.points.clear();
     n_seq++;
-    tf::Quaternion quat = tf::Quaternion(tf::Vector3(0.0, 0.0, 1.0), -M_PI * i);
+    tf::Quaternion quat = tf::Quaternion(tf::Vector3(0.0, 0.0, 1.0), M_PI * i);
     trajectory_point.setFromYaw(tf::getYaw(quat));
     mav_msgs::msgMultiDofJointTrajectoryPointFromEigen(trajectory_point, &trajectory_point_msg);
     samples_array.points.push_back(trajectory_point_msg);
-    trajectory_pub.publish(samples_array);
+    trajectory_pub.publish(trajectory_point_msg);
     ros::Duration(1.0).sleep();
   }
-  trajectory_point.position_W.x() -= 0.5;
-  trajectory_point.position_W.y() -= 0.5;
+  trajectory_point.position_W.x() -= 1.0;
+  trajectory_point.position_W.y() -= 1.0;
+  // trajectory_point.position_W.z() -= 0.25;
   samples_array.header.seq = n_seq;
   samples_array.header.stamp = ros::Time::now();
   samples_array.points.clear();
   n_seq++;
   mav_msgs::msgMultiDofJointTrajectoryPointFromEigen(trajectory_point, &trajectory_point_msg);
   samples_array.points.push_back(trajectory_point_msg);
-  trajectory_pub.publish(samples_array);
+  trajectory_pub.publish(trajectory_point_msg);
   ros::Duration(1.0).sleep();
-
+  
   // Start planning: The planner is called and the computed path sent to the controller.
   int iteration = 0;
   while (ros::ok()) {
     ROS_INFO_THROTTLE(0.5, "Planning iteration %i", iteration);
+    ROS_INFO("Iteration started at  %10.5fs",  (ros::Time::now()).toSec());
     nbvplanner::nbvp_srv planSrv;
+    nbvplanner::volume_srv volumeSrv;
     planSrv.request.header.stamp = ros::Time::now();
     planSrv.request.header.seq = iteration;
-    planSrv.request.header.frame_id = "world";
+    planSrv.request.header.frame_id = parent_frame_id;
     if (ros::service::call("nbvplanner", planSrv)) {
       n_seq++;
       if (planSrv.response.path.size() == 0) {
@@ -121,25 +125,31 @@ int main(int argc, char** argv)
       for (int i = 0; i < planSrv.response.path.size(); i++) {
         samples_array.header.seq = n_seq;
         samples_array.header.stamp = ros::Time::now();
-        samples_array.header.frame_id = "world";
+        samples_array.header.frame_id = parent_frame_id;
         samples_array.points.clear();
         tf::Pose pose;
         tf::poseMsgToTF(planSrv.response.path[i], pose);
         double yaw = tf::getYaw(pose.getRotation());
         trajectory_point.position_W.x() = planSrv.response.path[i].position.x;
         trajectory_point.position_W.y() = planSrv.response.path[i].position.y;
-        // Add offset to account for constant tracking error of controller
-        trajectory_point.position_W.z() = planSrv.response.path[i].position.z + 0.25;
+        trajectory_point.position_W.z() = planSrv.response.path[i].position.z;
         tf::Quaternion quat = tf::Quaternion(tf::Vector3(0.0, 0.0, 1.0), yaw);
         trajectory_point.setFromYaw(tf::getYaw(quat));
         mav_msgs::msgMultiDofJointTrajectoryPointFromEigen(trajectory_point, &trajectory_point_msg);
         samples_array.points.push_back(trajectory_point_msg);
-        trajectory_pub.publish(samples_array);
+        trajectory_pub.publish(trajectory_point_msg);
         ros::Duration(dt).sleep();
       }
     } else {
       ROS_WARN_THROTTLE(1, "Planner not reachable");
       ros::Duration(1.0).sleep();
+    }
+    //Call service for calculating and logging volume
+    volumeSrv.request.header.stamp = ros::Time::now();
+    volumeSrv.request.header.seq = iteration;
+    volumeSrv.request.header.frame_id = parent_frame_id;
+    if(ros::service::call("volume_service", volumeSrv)){
+      ROS_INFO("Volume updated.");
     }
     iteration++;
   }
