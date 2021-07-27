@@ -531,6 +531,39 @@ std::vector<geometry_msgs::Pose> nbvInspection::RrtTree::getBestEdge(std::string
   return ret;
 }
 
+std::vector<geometry_msgs::Pose> nbvInspection::RrtTree::getBestPathNodes(std::string targetFrame)
+{
+// This function returns the nodes of the best branch
+  std::vector<geometry_msgs::Pose> ret;
+  nbvInspection::Node<StateVec> * current = bestNode_;
+  ROS_INFO("Best Gain: %4.15f", bestNode_->gain_);
+  publishBestNode();
+  //Resursive method for collencting all nodes on the best branch
+  geometry_msgs::Pose node_pose;
+  node_pose.position.x = current->state_[0];
+  node_pose.position.y = current->state_[1];
+  node_pose.position.z = current->state_[2];
+  ret.push_back(node_pose);
+  // Exact root is the best node
+  exact_root_ = current->state_;   
+  if (current->parent_ != NULL) {
+    while (current->parent_ != rootNode_ && current->parent_ != NULL) {
+      node_pose.position.x = current->parent_->state_[0];
+      node_pose.position.y = current->parent_->state_[1];
+      node_pose.position.z = current->parent_->state_[2];
+      ret.push_back(node_pose);
+      publishCurrentNode(current->parent_);
+      history_.push(current->parent_->state_);
+      current = current->parent_;
+    }
+    
+    // Reverse vector
+    std::reverse(ret.begin(), ret.end());
+    // ret = samplePath(current->parent_->state_, current->state_, targetFrame);  
+  }
+  return ret;
+}
+
 //Function for returning to origin
 std::vector<geometry_msgs::Pose> nbvInspection::RrtTree::getReturnEdge(std::string targetFrame)
 {
@@ -680,10 +713,10 @@ void nbvInspection::RrtTree::visualizeGain(Eigen::Vector3d vec)
   p.scale.x = 0.1;
   p.scale.y = 0.1;
   p.scale.z = 0.1;
-  p.color.r = 0.0;
-  p.color.g = 0.0;
-  p.color.b = 1.0;
-  p.color.a = 0.6;
+  p.color.r = 1.0;
+  p.color.g = 0.9;
+  p.color.b = 0.3;
+  p.color.a = 1.0;
   p.lifetime = ros::Duration(10.0);
   p.frame_locked = false;
   params_.inspectionPath_.publish(p);
@@ -874,7 +907,20 @@ std::vector<geometry_msgs::Pose> nbvInspection::RrtTree::getPathBackToPrevious(
   if (history_.empty()) {
     return ret;
   }
-  ret = samplePath(root_, history_.top(), targetFrame);
+  
+  // If root is in history_
+  if (history_.size() == 1) {
+  return ret;
+  }
+  
+  // Return to the previous node; Original = return to root
+  geometry_msgs::Pose node_pose;
+  node_pose.position.x = history_.top()[0];
+  node_pose.position.y = history_.top()[1];
+  node_pose.position.z = history_.top()[2];
+  std::cout << "Root: " << root_[0] << root_[1] << std::endl;
+  std::cout << "Return to : " << node_pose.position.x << node_pose.position.y << std::endl;
+  ret.push_back(node_pose);
   history_.pop();
   return ret;
 }
@@ -928,7 +974,7 @@ void nbvInspection::RrtTree::publishNode(Node<StateVec> * node)
   p.color.g = 167.0 / 255.0;
   p.color.b = 0.0;
   p.color.a = 1.0;
-  p.lifetime = ros::Duration(10.0);
+  p.lifetime = ros::Duration(20.0);
   p.frame_locked = false;
   params_.inspectionPath_.publish(p);
 
@@ -1004,7 +1050,7 @@ void nbvInspection::RrtTree::publishBestNode()
   p.color.g = 1.0;
   p.color.b = 0.0;
   p.color.a = 1.0;
-  p.lifetime = ros::Duration(10.0);
+  p.lifetime = ros::Duration(20.0);
   p.frame_locked = false;
   params_.inspectionPath_.publish(p);
 }
@@ -1036,7 +1082,7 @@ void nbvInspection::RrtTree::publishCurrentNode(Node<StateVec> * node)
   p.color.g = 1.0;
   p.color.b = 0.0;
   p.color.a = 1.0;
-  p.lifetime = ros::Duration(10.0);
+  p.lifetime = ros::Duration(20.0);
   p.frame_locked = false;
   params_.inspectionPath_.publish(p);
 }

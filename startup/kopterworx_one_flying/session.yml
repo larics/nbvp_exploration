@@ -25,6 +25,8 @@ windows:
   - exploration:
       layout: tiled
       panes:
+        - waitForRos; waitForOdometry; roslaunch interface_nbvp_rotors planner.launch
+        - waitForRos; waitForOdometry; roslaunch interface_nbvp_rotors execute_trajectory.launch
         - "#waitForRos; waitForOdometry; roslaunch interface_nbvp_rotors kopterworx_exploration.launch"
   - rviz:
       layout: tiled

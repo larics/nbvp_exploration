@@ -278,7 +278,7 @@ bool nbvInspection::nbvPlanner<stateVec>::plannerCallback(nbvplanner::nbvp_srv::
   computationTime2 = (ros::Time::now() - computationStartTime2).toSec();
   ROS_INFO("Function for gain lasted %6.15fs", computationTime2);
   // Extract the best edge.
-  res.path = tree_->getBestEdge(req.header.frame_id);
+  res.path = tree_->getBestPathNodes(req.header.frame_id);
 
   tree_->memorizeBestBranch();
   // Publish path to block for other agents (multi agent only).

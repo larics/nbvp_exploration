@@ -46,6 +46,7 @@ class RrtTree : public TreeBase<Eigen::Vector4d>
   virtual void initialize();
   virtual void iterate(int iterations);
   virtual std::vector<geometry_msgs::Pose> getBestEdge(std::string targetFrame);
+  virtual std::vector<geometry_msgs::Pose> getBestPathNodes(std::string targetFrame);
   virtual void clear();
   virtual std::vector<geometry_msgs::Pose> getPathBackToPrevious(std::string targetFrame);
   virtual void memorizeBestBranch();

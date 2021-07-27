@@ -27,11 +27,24 @@
 #include <tf/tf.h>
 #include <std_srvs/Empty.h>
 #include <trajectory_msgs/MultiDOFJointTrajectory.h>
+#include <std_msgs/Bool.h>
+#include <geometry_msgs/PoseArray.h>
 
 #include <mav_msgs/conversions.h>
 #include <mav_msgs/default_topics.h>
 #include <nbvplanner/nbvp_srv.h>
 #include <nbvplanner/volume_srv.h>
+
+bool current_goal_reached = false;
+
+void pointReachedCallback(std_msgs::Bool msg)
+{
+  if (msg.data)
+  {
+    ROS_INFO("Current goal point is reached!");
+    current_goal_reached = true;
+  }
+}
 
 int main(int argc, char** argv)
 {
@@ -39,6 +52,8 @@ int main(int argc, char** argv)
   ros::NodeHandle nh;
   ros::Publisher trajectory_pub = nh.advertise < trajectory_msgs::MultiDOFJointTrajectoryPoint
       > (mav_msgs::default_topics::COMMAND_TRAJECTORY, 5);
+  ros::Publisher goals_pub = nh.advertise < geometry_msgs::PoseArray > ("nbvp/goals", 1);
+  ros::Subscriber point_reached_sub = nh.subscribe("nbvp/point_reached", 1, &pointReachedCallback);
   ROS_INFO("Started exploration");
 
   std_srvs::Empty srv;
@@ -95,8 +110,8 @@ int main(int argc, char** argv)
     trajectory_pub.publish(trajectory_point_msg);
     ros::Duration(1.0).sleep();
   }
-  trajectory_point.position_W.x() -= 1.0;
-  trajectory_point.position_W.y() -= 1.0;
+  trajectory_point.position_W.x() -= 2.0;
+  trajectory_point.position_W.y() += 0.5;
   // trajectory_point.position_W.z() -= 0.25;
   samples_array.header.seq = n_seq;
   samples_array.header.stamp = ros::Time::now();
@@ -122,23 +137,22 @@ int main(int argc, char** argv)
       if (planSrv.response.path.size() == 0) {
         ros::Duration(1.0).sleep();
       }
-      for (int i = 0; i < planSrv.response.path.size(); i++) {
-        samples_array.header.seq = n_seq;
-        samples_array.header.stamp = ros::Time::now();
-        samples_array.header.frame_id = parent_frame_id;
-        samples_array.points.clear();
-        tf::Pose pose;
-        tf::poseMsgToTF(planSrv.response.path[i], pose);
-        double yaw = tf::getYaw(pose.getRotation());
-        trajectory_point.position_W.x() = planSrv.response.path[i].position.x;
-        trajectory_point.position_W.y() = planSrv.response.path[i].position.y;
-        trajectory_point.position_W.z() = planSrv.response.path[i].position.z;
-        tf::Quaternion quat = tf::Quaternion(tf::Vector3(0.0, 0.0, 1.0), yaw);
-        trajectory_point.setFromYaw(tf::getYaw(quat));
-        mav_msgs::msgMultiDofJointTrajectoryPointFromEigen(trajectory_point, &trajectory_point_msg);
-        samples_array.points.push_back(trajectory_point_msg);
-        trajectory_pub.publish(trajectory_point_msg);
-        ros::Duration(dt).sleep();
+      else {
+        geometry_msgs::PoseArray goals;
+        goals.header.seq = n_seq;
+        goals.header.stamp = ros::Time::now();
+        goals.header.frame_id = parent_frame_id;
+        for (int i = 0; i < planSrv.response.path.size(); i++) {
+          goals.poses.push_back(planSrv.response.path[i]);
+        }
+        goals_pub.publish(goals);
+        while (!current_goal_reached)
+        {
+          ros::spinOnce();
+          ros::Duration(dt).sleep();
+        }
+        current_goal_reached = false;
+        std::cout << "Current goal reached!" << std::endl;
       }
     } else {
       ROS_WARN_THROTTLE(1, "Planner not reachable");
@@ -153,4 +167,5 @@ int main(int argc, char** argv)
     }
     iteration++;
   }
-}
+};
+
