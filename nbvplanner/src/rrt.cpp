@@ -347,7 +347,7 @@ void nbvInspection::RrtTree::iterate(int iterations)
     //newState[3] = 2.0 * M_PI * (((double) rand()) / ((double) RAND_MAX) - 0.5);
 
     //MAV orientation towards next point .. atan2(dy,dx)
-    newState[3] = atan2(direction[1], direction[0]);
+    // newState[3] = atan2(direction[1], direction[0]);
 
     // Create new node and insert into tree
     nbvInspection::Node<StateVec> * newNode = new nbvInspection::Node<StateVec>;
@@ -362,10 +362,12 @@ void nbvInspection::RrtTree::iterate(int iterations)
     if(!params_.updateDegressiveCoeff_){
       degressiveCoeff_ = params_.degressiveCoeff_;
     }
-  
-    newNode->gain_ = newParent->gain_
-        + gain(newNode->state_) * exp(-degressiveCoeff_* newNode->distance_);
 
+    // Total gain is sum of all cubes along the rrt tree
+    newNode->gain_ = newParent->gain_
+        + 10 * samplePathWithCubes(newNode->state_, newParent->state_, params_.navigationFrame_) 
+        * exp(-params_.degressiveCoeff_ * newNode->distance_);
+    std::cout << "Gain: " << newNode->gain_ << std::endl;
     kd_insert3(kdTree_, newState.x(), newState.y(), newState.z(), newNode);
     // Display new node
     publishNode(newNode);
@@ -465,7 +467,8 @@ void nbvInspection::RrtTree::initialize()
         degressiveCoeff_ = params_.degressiveCoeff_;
       }
       newNode->gain_ = newParent->gain_
-          + gain(newNode->state_) * exp(-degressiveCoeff_ * newNode->distance_);
+        + 10 * samplePathWithCubes(newNode->state_, newParent->state_, params_.navigationFrame_)
+        * exp(-params_.degressiveCoeff_ * newNode->distance_);
       kd_insert3(kdTree_, newState.x(), newState.y(), newState.z(), newNode);
 
       // Display new node
@@ -535,17 +538,19 @@ std::vector<geometry_msgs::Pose> nbvInspection::RrtTree::getBestPathNodes(std::s
 {
 // This function returns the nodes of the best branch
   std::vector<geometry_msgs::Pose> ret;
+  branchHistory_.clear();
   nbvInspection::Node<StateVec> * current = bestNode_;
   ROS_INFO("Best Gain: %4.15f", bestNode_->gain_);
   publishBestNode();
-  //Resursive method for collencting all nodes on the best branch
+  //Resursive method for collecting all nodes on the best branch
   geometry_msgs::Pose node_pose;
   node_pose.position.x = current->state_[0];
   node_pose.position.y = current->state_[1];
   node_pose.position.z = current->state_[2];
   ret.push_back(node_pose);
   // Exact root is the best node
-  exact_root_ = current->state_;   
+  exact_root_ = current->state_;
+  ROS_INFO("Tu sam");   
   if (current->parent_ != NULL) {
     while (current->parent_ != rootNode_ && current->parent_ != NULL) {
       node_pose.position.x = current->parent_->state_[0];
@@ -553,10 +558,16 @@ std::vector<geometry_msgs::Pose> nbvInspection::RrtTree::getBestPathNodes(std::s
       node_pose.position.z = current->parent_->state_[2];
       ret.push_back(node_pose);
       publishCurrentNode(current->parent_);
-      history_.push(current->parent_->state_);
+      branchHistory_.push_back(current->parent_->state_);
       current = current->parent_;
     }
-    
+
+    // Save into history from back to front, to kepp returning to the closest node from bestNode
+    if (branchHistory_.size() != 0){
+      for (std::list<StateVec>::reverse_iterator it = branchHistory_.rbegin(); it != branchHistory_.rend(); it++){
+        history_.push(*it);
+      }
+    }
     // Reverse vector
     std::reverse(ret.begin(), ret.end());
     // ret = samplePath(current->parent_->state_, current->state_, targetFrame);  
@@ -900,6 +911,47 @@ double nbvInspection::RrtTree::gain(StateVec state)
   return gain;
 }
 
+double nbvInspection::RrtTree::gainCube(StateVec state, double a)
+{
+  // This function computes the gain inside the cube with the origin in the state
+  double gain = 0.0;
+  const double disc = manager_->getResolution();
+  Eigen::Vector3d origin(state[0], state[1], state[2]);
+  Eigen::Vector3d vec;
+  int unknownNum = 0;
+  int allNum = 0;
+  // Calculate the number of unknown cells inside a box around the node
+  // Gain is propotional to number of the unknown cells inside a box
+  // a is a side length of a cube
+  // Iterate over all nodes within the allowed distance
+  for (vec[0] = std::max(state[0] - (a/2), params_.minX_);
+      vec[0] < std::min(state[0] +(a/2), params_.maxX_); vec[0] += disc) {
+    for (vec[1] = std::max(state[1] - (a/2), params_.minY_);
+        vec[1] < std::min(state[1] + (a/2), params_.maxY_); vec[1] += disc) {
+      for (vec[2] = std::max(state[2] - (a/2), params_.minZ_);
+          vec[2] < std::min(state[2] + (a/2), params_.maxZ_); vec[2] += disc) {
+        allNum++;
+        // Check cell status and add to the gain considering the corresponding factor.
+        double probability;
+        volumetric_mapping::OctomapManager::CellStatus node = manager_->getCellProbabilityPoint(
+            vec, &probability);
+        if (node == volumetric_mapping::OctomapManager::CellStatus::kUnknown) {
+          unknownNum++;
+          //Gain visualization
+          if(params_.gainVisualization_){
+            visualizeGainRed(vec);
+          }
+        }
+      }
+    }
+  }
+  // Scale with volume
+  // gain *= pow(disc, 3.0);
+  
+  gain = (double)unknownNum / (double)allNum;
+  return gain;
+}
+
 std::vector<geometry_msgs::Pose> nbvInspection::RrtTree::getPathBackToPrevious(
     std::string targetFrame)
 {
@@ -918,8 +970,6 @@ std::vector<geometry_msgs::Pose> nbvInspection::RrtTree::getPathBackToPrevious(
   node_pose.position.x = history_.top()[0];
   node_pose.position.y = history_.top()[1];
   node_pose.position.z = history_.top()[2];
-  std::cout << "Root: " << root_[0] << root_[1] << std::endl;
-  std::cout << "Return to : " << node_pose.position.x << node_pose.position.y << std::endl;
   ret.push_back(node_pose);
   history_.pop();
   return ret;
@@ -1166,6 +1216,46 @@ std::vector<geometry_msgs::Pose> nbvInspection::RrtTree::samplePath(StateVec sta
     }
   }
   return ret;
+}
+
+double nbvInspection::RrtTree::samplePathWithCubes(StateVec start, StateVec end,
+                                                    std::string targetFrame)
+{
+  double counter;
+  double gain = 0;
+  static tf::TransformListener listener;
+  tf::StampedTransform transform;
+  try {
+    listener.lookupTransform(targetFrame, params_.navigationFrame_, ros::Time(0), transform);
+  } catch (tf::TransformException ex) {
+    ROS_ERROR("%s", ex.what());
+    return gain;
+  }
+  Eigen::Vector3d distance(end[0] - start[0], end[1] - start[1], end[2] - start[2]);
+  double yaw_direction = end[3] - start[3];
+  if (yaw_direction > M_PI) {
+    yaw_direction -= 2.0 * M_PI;
+  }
+  if (yaw_direction < -M_PI) {
+    yaw_direction += 2.0 * M_PI;
+  }
+  // Find number of points 
+  double sample_points_num = ceil(distance.norm() / params_.gainRange_);
+  // Sampling step is a cube length params_.gainRange_
+  for (double it = 0.0; it <= sample_points_num; it++) {
+    counter++;
+    tf::Vector3 origin(start[0] + distance[0] * it / sample_points_num, 
+                      start[1] + distance[1] * it / sample_points_num,
+                      start[2] + distance[2] * it / sample_points_num);
+    origin = transform * origin;
+    StateVec state;
+    state[0] = origin[0];
+    state[1] = origin[1];
+    state[2] = origin[2];
+    gain += gainCube(state, params_.gainRange_);
+  }
+  // std::cout << "counter_u_gainu: " << counter << std::endl;
+  return gain;
 }
 
 #endif

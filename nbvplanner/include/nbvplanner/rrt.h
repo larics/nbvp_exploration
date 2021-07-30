@@ -63,11 +63,15 @@ class RrtTree : public TreeBase<Eigen::Vector4d>
   bool setGoal();
   virtual int getHistorySize();
   double gain(StateVec state);
+  double gainCube(StateVec start, double pathDistance);
   std::vector<geometry_msgs::Pose> samplePath(StateVec start, StateVec end,
+                                              std::string targetFrame);
+  double samplePathWithCubes(StateVec start, StateVec end,
                                               std::string targetFrame);
  protected:
   kdtree * kdTree_;
   std::stack<StateVec> history_;
+  std::list<StateVec> branchHistory_;
   std::vector<StateVec> bestBranchMemory_;
   int g_ID_;
   int v_ID_= 0;
