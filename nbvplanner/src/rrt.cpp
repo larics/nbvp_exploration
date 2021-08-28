@@ -365,9 +365,9 @@ void nbvInspection::RrtTree::iterate(int iterations)
 
     // Total gain is sum of all cubes along the rrt tree
     newNode->gain_ = newParent->gain_
-        + 10 * samplePathWithCubes(newNode->state_, newParent->state_, params_.navigationFrame_) 
+        + samplePathWithCubes(newNode->state_, newParent->state_, params_.navigationFrame_) 
         * exp(-params_.degressiveCoeff_ * newNode->distance_);
-    std::cout << "Gain: " << newNode->gain_ << std::endl;
+    // std::cout << "Gain: " << newNode->gain_ << std::endl;
     kd_insert3(kdTree_, newState.x(), newState.y(), newState.z(), newNode);
     // Display new node
     publishNode(newNode);
@@ -467,7 +467,7 @@ void nbvInspection::RrtTree::initialize()
         degressiveCoeff_ = params_.degressiveCoeff_;
       }
       newNode->gain_ = newParent->gain_
-        + 10 * samplePathWithCubes(newNode->state_, newParent->state_, params_.navigationFrame_)
+        + samplePathWithCubes(newNode->state_, newParent->state_, params_.navigationFrame_)
         * exp(-params_.degressiveCoeff_ * newNode->distance_);
       kd_insert3(kdTree_, newState.x(), newState.y(), newState.z(), newNode);
 
@@ -765,6 +765,46 @@ void nbvInspection::RrtTree::visualizeGainRed(Eigen::Vector3d vec)
   params_.inspectionPath_.publish(p);
 }
 
+void nbvInspection::RrtTree::visualizeCuboid(StateVec start, StateVec end)
+{
+  visualization_msgs::Marker p;
+  p.header.stamp = ros::Time::now();
+  p.header.seq = v_ID_;
+  p.header.frame_id = params_.navigationFrame_;
+  p.id = v_ID_;
+  v_ID_++;
+  p.ns = "vp_tree";
+  p.type = visualization_msgs::Marker::CUBE;
+  p.action = visualization_msgs::Marker::ADD;
+  // Parent
+  Eigen::Quaternion<float> q;
+  Eigen::Vector3f init(1.0, 0.0, 0.0);
+  // Current - parent
+  Eigen::Vector3f dir(start[0] - end[0],
+                      start[1] - end[1],
+                      start[2] - end[2]);
+  // The center of the cube is in the middle
+  p.pose.position.x = end[0] + dir[0]/2;
+  p.pose.position.y = end[1] + dir[1]/2;
+  p.pose.position.z = end[2] + dir[2]/2;
+  q.setFromTwoVectors(init, dir);
+  q.normalize();
+  p.pose.orientation.x = q.x();
+  p.pose.orientation.y = q.y();
+  p.pose.orientation.z = q.z();
+  p.pose.orientation.w = q.w();
+  p.scale.x = dir.norm();
+  p.scale.y = 5;
+  p.scale.z = 5;
+  p.color.r = 1.0;
+  p.color.g = 0.4;
+  p.color.b = 0.8;
+  p.color.a = 0.5;
+  p.lifetime = ros::Duration(10.0);
+  p.frame_locked = false;
+  params_.inspectionPath_.publish(p);
+}
+
 double nbvInspection::RrtTree::gain(StateVec state)
 {
 // This function computes the gain
@@ -911,45 +951,174 @@ double nbvInspection::RrtTree::gain(StateVec state)
   return gain;
 }
 
-double nbvInspection::RrtTree::gainCube(StateVec state, double a)
+// double nbvInspection::RrtTree::gainCube(StateVec state, double distance, double a)
+// {
+//   ros::Time computationStartTime1 = ros::Time::now();
+//   // This function computes the gain inside the cuboid with the origin in the state
+//   double gain = 0.0;
+//   const double resolution = manager_->getResolution();
+//   Eigen::Vector3d origin(state[0], state[1], state[2]);
+//   Eigen::Vector3d vec;
+//   int unknownNum = 0;
+//   // All points in 3D space
+//   int allNum = 0;
+//   int allNum = (a / resolution) * (a / resolution) * (a / resolution);
+  
+//   static double multipliers[4][8] = {
+//     {1, 0, 0, -1, -1, 0, 0, 1},
+//     {0, 1, -1, 0, 0, -1, 1, 0},
+//     {0, 1, 1, 0, 0, -1, -1, 0},
+//     {1, 0, 0, 1, -1, 0, 0, -1}
+//   };
+//   // Calculate the number of unknown cells inside a box around the node
+//   // Gain is propotional to number of the unknown cells inside a box
+//   // a is a side length of a cube
+//   // Iterate over all nodes within the allowed distance
+//   // for (vec[0] = std::max(state[0], params_.minX_);
+//   //     vec[0] < std::min(state[0] + (a/2), params_.maxX_); vec[0] += disc) {
+//   //   for (vec[1] = std::max(state[1], params_.minY_);
+//   //       vec[1] < std::min(state[1] + (a/2), params_.maxY_); vec[1] += disc) {
+//   //     for (vec[2] = std::max(state[2], params_.minZ_);
+//   //         vec[2] < std::min(state[2] + (a/2), params_.maxZ_); vec[2] += disc) {
+//   //       allNum++;
+//   //       // Check cell status and add to the gain considering the corresponding factor.
+//   //       double probability;
+//   //       volumetric_mapping::OctomapManager::CellStatus node = manager_->getCellProbabilityPoint(
+//   //           vec, &probability);
+
+//   //       if (node == volumetric_mapping::OctomapManager::CellStatus::kUnknown) {
+//   //         unknownNum++;
+//   //         //Gain visualization
+//   //         if(params_.gainVisualization_){
+//   //           visualizeGainRed(vec);
+//   //         }
+//   //       }
+//   //     }
+//   //   }
+//   // } 
+
+//   // Go through all octants; find the sum of unknown cells
+//   for (uint i = 0; i < 8; i++)
+//   {
+//     unknownNum += castUnknown(state, a, distance, 1.0, 1.0, 0.0, multipliers[0][i],
+//                 multipliers[1][i], multipliers[2][i], multipliers[3][i]);
+//   }
+//   // std::cout << "Value of unknown: " << unknownNum << std::endl;
+
+//   // Scale with volume
+//   // gain *= pow(disc, 3.0);
+  
+//   gain = (double)unknownNum / (double)allNum;
+//   double computationTime;
+//   computationTime = (ros::Time::now() - computationStartTime1).toSec();
+//   // ROS_INFO("Gain cube method lasted %6.15fs", computationTime);
+//   return gain;
+// }
+
+double nbvInspection::RrtTree::gainCuboid(StateVec state, double distance, double a)
 {
-  // This function computes the gain inside the cube with the origin in the state
+  // Computes the number of unknown cells inside the cuboid with the origin in the state
   double gain = 0.0;
-  const double disc = manager_->getResolution();
-  Eigen::Vector3d origin(state[0], state[1], state[2]);
-  Eigen::Vector3d vec;
+  const double resolution = manager_->getResolution();
   int unknownNum = 0;
-  int allNum = 0;
-  // Calculate the number of unknown cells inside a box around the node
-  // Gain is propotional to number of the unknown cells inside a box
-  // a is a side length of a cube
-  // Iterate over all nodes within the allowed distance
-  for (vec[0] = std::max(state[0] - (a/2), params_.minX_);
-      vec[0] < std::min(state[0] +(a/2), params_.maxX_); vec[0] += disc) {
-    for (vec[1] = std::max(state[1] - (a/2), params_.minY_);
-        vec[1] < std::min(state[1] + (a/2), params_.maxY_); vec[1] += disc) {
-      for (vec[2] = std::max(state[2] - (a/2), params_.minZ_);
-          vec[2] < std::min(state[2] + (a/2), params_.maxZ_); vec[2] += disc) {
-        allNum++;
-        // Check cell status and add to the gain considering the corresponding factor.
+  // All points in 3D space
+  double allNum = (distance / resolution) * (a / resolution) * (a / resolution);
+
+  static double multipliers[4][8] = {
+    {1, 0, 0, -1, -1, 0, 0, 1},
+    {0, 1, -1, 0, 0, -1, 1, 0},
+    {0, 1, 1, 0, 0, -1, -1, 0},
+    {1, 0, 0, 1, -1, 0, 0, -1}
+  };
+
+  // Go through all octants; find the sum of unknown cells
+  for (uint i = 0; i < 8; i++)
+  {
+    unknownNum += castUnknown(state, a, distance, 1.0, 1.0, 0.0, multipliers[0][i],
+                multipliers[1][i], multipliers[2][i], multipliers[3][i]);
+  }
+
+  double volume = unknownNum * pow(resolution, 3.0); 
+  gain = volume;
+  // gain = (double)unknownNum / (double)allNum;
+  return gain;
+}
+
+int nbvInspection::RrtTree::castUnknown(StateVec state, double a, double distance, double row, 
+  double start_slope, double end_slope, double xx, double xy, double yx, double yy)
+{
+  // Returns number of unknown in one octant
+  int unknownNum = 0;
+  const double resolution = manager_->getResolution();
+  if (start_slope < end_slope) {
+    return 0;
+  }
+
+  double next_start_slope = start_slope;
+  for (double z = -a / 2; z <= a / 2; z += resolution){
+    for (double i = row; i <= a / 2; i += resolution) {
+      bool blocked = false;
+      for (double dx = -i, dy = -i; dx <= 0; dx += resolution) {
+        // Slide l_slope and r_slope in one row, left goes through the first point
+        // the right one 45 degrees down
+        double l_slope = (dx - 0.5) / (dy + 0.5);
+        double r_slope = (dx + 0.5) / (dy - 0.5);
+        if (start_slope < r_slope) {
+          continue;
+        } else if (end_slope > l_slope) {
+            break;
+        }
+        double sax = dx * xx + dy * xy;
+        double say = dx * yx + dy * yy;
+        if (sax < 0 || say < 0)
+        {
+          continue;
+        }
+        // Global position
+        double ax = state[0] + sax;
+        double ay = state[1] + say;
+        // Check if the calculated point is out of the map bounding box given in yaml
+        if (ax >= params_.maxX_ || ax < params_.minX_ ||
+          ay >= params_.maxY_ || ay < params_.minY_ ||
+          z >= params_.maxZ_ || z < params_.minZ_) {
+          continue;
+        }
+
+        Eigen::Vector3d vec(ax, ay, z);
         double probability;
         volumetric_mapping::OctomapManager::CellStatus node = manager_->getCellProbabilityPoint(
-            vec, &probability);
-        if (node == volumetric_mapping::OctomapManager::CellStatus::kUnknown) {
+          vec, &probability);
+        // If the point is inside the cuboid
+        if (std::abs(sax) < distance / 2 && std::abs(say) < a / 2) {
+          // Mark the unknown cell
+          if (node == volumetric_mapping::OctomapManager::CellStatus::kUnknown) {
           unknownNum++;
-          //Gain visualization
-          if(params_.gainVisualization_){
-            visualizeGainRed(vec);
+            //Gain visualization
+            if(params_.gainVisualization_){
+              visualizeGainRed(vec);
+            }
           }
         }
+        if (blocked) {
+          if (node == volumetric_mapping::OctomapManager::CellStatus::kOccupied) {
+            next_start_slope = r_slope;
+            continue;
+          } else {
+            blocked = false;
+            start_slope = next_start_slope;
+            }
+        } else if (node == volumetric_mapping::OctomapManager::CellStatus::kOccupied) {
+            blocked = true;
+            next_start_slope = r_slope;
+            castUnknown(state, a, distance, i + 1, start_slope, l_slope, xx, xy, yx, yy);
+          }
+      }
+      if (blocked) {
+          break;
       }
     }
   }
-  // Scale with volume
-  // gain *= pow(disc, 3.0);
-  
-  gain = (double)unknownNum / (double)allNum;
-  return gain;
+  return unknownNum;
 }
 
 std::vector<geometry_msgs::Pose> nbvInspection::RrtTree::getPathBackToPrevious(
@@ -1221,7 +1390,6 @@ std::vector<geometry_msgs::Pose> nbvInspection::RrtTree::samplePath(StateVec sta
 double nbvInspection::RrtTree::samplePathWithCubes(StateVec start, StateVec end,
                                                     std::string targetFrame)
 {
-  double counter;
   double gain = 0;
   static tf::TransformListener listener;
   tf::StampedTransform transform;
@@ -1232,6 +1400,12 @@ double nbvInspection::RrtTree::samplePathWithCubes(StateVec start, StateVec end,
     return gain;
   }
   Eigen::Vector3d distance(end[0] - start[0], end[1] - start[1], end[2] - start[2]);
+
+  // If start and end point are the same
+  if (distance.norm() == 0){
+    return gain;
+  }
+  
   double yaw_direction = end[3] - start[3];
   if (yaw_direction > M_PI) {
     yaw_direction -= 2.0 * M_PI;
@@ -1239,22 +1413,17 @@ double nbvInspection::RrtTree::samplePathWithCubes(StateVec start, StateVec end,
   if (yaw_direction < -M_PI) {
     yaw_direction += 2.0 * M_PI;
   }
-  // Find number of points 
-  double sample_points_num = ceil(distance.norm() / params_.gainRange_);
-  // Sampling step is a cube length params_.gainRange_
-  for (double it = 0.0; it <= sample_points_num; it++) {
-    counter++;
-    tf::Vector3 origin(start[0] + distance[0] * it / sample_points_num, 
-                      start[1] + distance[1] * it / sample_points_num,
-                      start[2] + distance[2] * it / sample_points_num);
-    origin = transform * origin;
-    StateVec state;
-    state[0] = origin[0];
-    state[1] = origin[1];
-    state[2] = origin[2];
-    gain += gainCube(state, params_.gainRange_);
-  }
-  // std::cout << "counter_u_gainu: " << counter << std::endl;
+  tf::Vector3 origin(cos(start[3]) * (start[0] + distance[0]/2), 
+                      sin(start[3]) * (start[1] + distance[1]/2),
+                      start[2] + distance[2]/2);
+  origin = transform * origin;
+  StateVec state;
+  state[0] = origin[0];
+  state[1] = origin[1];
+  state[2] = origin[2];
+  gain += gainCuboid(state, distance.norm(), params_.gainRange_);
+  // Visualize cuboid on the path segment
+  // visualizeCuboid(start, end);
   return gain;
 }
 
