@@ -765,6 +765,40 @@ void nbvInspection::RrtTree::visualizeGainRed(Eigen::Vector3d vec)
   params_.inspectionPath_.publish(p);
 }
 
+void nbvInspection::RrtTree::visualizeCenter(Eigen::Vector3d vec)
+{
+  visualization_msgs::Marker p;
+  p.header.stamp = ros::Time::now();
+  p.header.seq = vr_ID_;
+  p.header.frame_id = params_.navigationFrame_;
+  p.id = vr_ID_;
+  vr_ID_++;
+  p.ns = "vp_tree";
+  p.type = visualization_msgs::Marker::SPHERE;
+  p.action = visualization_msgs::Marker::ADD;
+  p.pose.position.x = vec[0];
+  p.pose.position.y = vec[1];
+  p.pose.position.z = vec[2];
+  tf::Quaternion quat;
+  quat.setEuler(0.0, 0.0, 1.0);
+  p.pose.orientation.x = quat.x();
+  p.pose.orientation.y = quat.y();
+  p.pose.orientation.z = quat.z();
+  p.pose.orientation.w = quat.w();
+  p.scale.x = 0.15;
+  p.scale.y = 0.15;
+  p.scale.z = 0.15;
+  p.color.r = 0.0;
+  p.color.g = 0.0;
+  p.color.b = 1.0;
+  p.color.a = 1.0;
+  p.lifetime = ros::Duration(10.0);
+  p.frame_locked = false;
+  params_.inspectionPath_.publish(p);
+}
+
+
+
 void nbvInspection::RrtTree::visualizeCuboid(StateVec start, StateVec end)
 {
   visualization_msgs::Marker p;
@@ -794,8 +828,8 @@ void nbvInspection::RrtTree::visualizeCuboid(StateVec start, StateVec end)
   p.pose.orientation.z = q.z();
   p.pose.orientation.w = q.w();
   p.scale.x = dir.norm();
-  p.scale.y = 5;
-  p.scale.z = 5;
+  p.scale.y = 6;
+  p.scale.z = 6;
   p.color.r = 1.0;
   p.color.g = 0.4;
   p.color.b = 0.8;
@@ -1407,15 +1441,24 @@ double nbvInspection::RrtTree::samplePathWithCubes(StateVec start, StateVec end,
   }
   
   double yaw_direction = end[3] - start[3];
-  if (yaw_direction > M_PI) {
-    yaw_direction -= 2.0 * M_PI;
-  }
-  if (yaw_direction < -M_PI) {
-    yaw_direction += 2.0 * M_PI;
-  }
-  tf::Vector3 origin(cos(start[3]) * (start[0] + distance[0]/2), 
-                      sin(start[3]) * (start[1] + distance[1]/2),
-                      start[2] + distance[2]/2);
+  double delta_x = end[0] - start[0];
+  double delta_y = end[1] - start[1];
+  double alpha = atan2(delta_y, delta_x);
+
+  tf::Vector3 origin(start[0] + distance[0]/2 * cos(alpha), 
+                    start[1] + distance[0]/2 * sin(alpha),
+                    start[2]);
+  Eigen::Vector3d center(origin[0], origin[1], origin[2]);
+  visualizeCenter(center);
+  // if (yaw_direction > M_PI) {
+  //   yaw_direction -= 2.0 * M_PI;
+  // }
+  // if (yaw_direction < -M_PI) {
+  //   yaw_direction += 2.0 * M_PI;
+  // }
+  // tf::Vector3 origin(cos(yaw_direction) * (start[0] + distance[0]/2), 
+  //                     sin(yaw_direction) * (start[1] + distance[1]/2),
+  //                     start[2]);
   origin = transform * origin;
   StateVec state;
   state[0] = origin[0];

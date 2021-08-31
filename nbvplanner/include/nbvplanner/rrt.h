@@ -59,6 +59,7 @@ class RrtTree : public TreeBase<Eigen::Vector4d>
   bool checkIfVisited(StateVec state);
   void visualizeGain(Eigen::Vector3d vec);
   void visualizeGainRed(Eigen::Vector3d vec);
+  void visualizeCenter(Eigen::Vector3d vec);
   void visualizeCuboid(StateVec start, StateVec end);
   virtual std::vector<geometry_msgs::Pose> getReturnEdge(std::string targetFrame);
   virtual void updateDegressiveCoeff();
