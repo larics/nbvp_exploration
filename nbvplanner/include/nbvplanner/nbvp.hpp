@@ -21,6 +21,7 @@
 #include <eigen3/Eigen/Dense>
 
 #include <visualization_msgs/Marker.h>
+#include <std_msgs/Float64MultiArray.h>
 
 #include <nbvplanner/nbvp.h>
 
@@ -65,6 +66,8 @@ nbvInspection::nbvPlanner<stateVec>::nbvPlanner(const ros::NodeHandle& nh,
   pointcloud_sub_cam_down_ = nh_.subscribe(
       "pointcloud_throttled_down", 1,
       &nbvInspection::nbvPlanner<stateVec>::insertPointcloudWithTfCamDown, this);
+  volumesPub_ = nh_.advertise<std_msgs::Float64MultiArray>("octomap_volume", 1);
+  compTimesPub_ = nh_.advertise<std_msgs::Float64MultiArray>("comp_times", 1);
 
   if (!setParams()) {
     ROS_ERROR("Could not start the planner. Parameters missing!");
@@ -171,7 +174,6 @@ template<typename stateVec>
 bool nbvInspection::nbvPlanner<stateVec>::volumeCallback(nbvplanner::volume_srv::Request& req,
                                                          nbvplanner::volume_srv::Response& res)
 {
-  double timeNow = ros::Time::now().toSec();
   double totalVolume = (params_.maxX_ - params_.minX_) * 
                        (params_.maxY_ - params_.minY_) * 
                        (1.0 + params_.maxZ_ - params_.minZ_); 
@@ -179,7 +181,22 @@ bool nbvInspection::nbvPlanner<stateVec>::volumeCallback(nbvplanner::volume_srv:
   //Function for displaying & logging change in free/occupied/undiscovered volume
   double volumes[2];
   manager_->calculateVolume(volumes);
-  manager_->printVolume(totalVolume, volumes, timeNow, params_.log_); 
+  
+  // Prepare data to publish
+  double freeVolume = *(volumes);
+  double occupiedVolume = *(volumes + 1);
+  double unmappedVolume = totalVolume - (occupiedVolume + freeVolume);
+  double timeNow = ros::Time::now().toSec();
+  std_msgs::Float64MultiArray allVolumes;
+  allVolumes.data.resize(5);
+  allVolumes.data[0] = occupiedVolume;
+  allVolumes.data[1] = freeVolume;
+  allVolumes.data[2] = totalVolume;
+  allVolumes.data[3] = unmappedVolume;
+  allVolumes.data[4] = timeNow;
+  volumesPub_.publish(allVolumes);
+
+  // manager_->printVolume(totalVolume, volumes, timeNow, params_.log_); 
   if(params_.updateDegressiveCoeff_){
     manager_->calculateDerivation(volumes, timeNow);
     tree_->updateCoeff();
@@ -246,6 +263,7 @@ bool nbvInspection::nbvPlanner<stateVec>::plannerCallback(nbvplanner::nbvp_srv::
       } else {
           ROS_INFO("No gain found, shutting down");
           ros::shutdown();
+          system("tmux kill-session -t single_kopter");
           return true;
         }
     }
@@ -294,7 +312,15 @@ bool nbvInspection::nbvPlanner<stateVec>::plannerCallback(nbvplanner::nbvp_srv::
   double computationTime;
   double timeNow = ros::Time::now().toSec();
   computationTime = (ros::Time::now() - computationStartTime).toSec();
-  ROS_INFO("Path computation lasted %6.15fs",computationTime);
+  ROS_INFO("Path computation lasted %6.15fs", computationTime);
+
+  // Publish computation times
+  std_msgs::Float64MultiArray allTimes;
+  allTimes.data.resize(3);
+  allTimes.data[0] = computationTime1;
+  allTimes.data[1] = computationTime2;
+  allTimes.data[2] = computationTime;
+  compTimesPub_.publish(allTimes);
   /*
   if(params_.log) {
     //std::ofstream rosTimeLog("~/DataLog/rosTime.txt", std::ios::app | std::ios::out);

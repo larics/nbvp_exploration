@@ -50,6 +50,8 @@ class nbvPlanner
   ros::Subscriber peerPosClient3_;
   ros::Subscriber evadeClient_;
   ros::Publisher evadePub_;
+  ros::Publisher volumesPub_;
+  ros::Publisher compTimesPub_;
   ros::ServiceServer plannerService_;
   ros::ServiceServer volumeService_;
   ros::Subscriber pointcloud_sub_;
