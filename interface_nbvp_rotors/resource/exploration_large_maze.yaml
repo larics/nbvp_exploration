@@ -1,0 +1,47 @@
+system/v_max: 1.5
+system/dyaw_max: 0.5
+system/camera/pitch: [15.0]
+system/camera/horizontal: [90.0]
+system/camera/vertical: [60.0]
+system/laser/pitch: [10.0]
+system/laser/horizontal: [360.0]
+system/laser/vertical: [30.0]
+# bounding box for collision avoidance
+system/bbx/x: 0.6
+system/bbx/y: 0.6
+system/bbx/z: 0.5
+system/bbx/overshoot: 0.2
+nbvp/gain/free: 0.0
+nbvp/gain/occupied: 0.0
+nbvp/gain/unmapped: 1.0
+nbvp/gain/area: 0.0
+nbvp/gain/probabilistic: 0.0
+nbvp/gain/range: 8.0
+nbvp/gain/zero: 0.0
+nbvp/gain/degressive_coeff: 0.3
+nbvp/tree/extension_range: 1.0
+nbvp/tree/exact_root: true
+nbvp/tree/initial_iterations: 20
+nbvp/tree/cuttoff_iterations: 200
+nbvp/dt: 0.1
+
+nbvp/log/throttle: 0.25
+nbvp/log/on: false
+
+nbvp/gain/visualization: true
+nbvp/gain/update_deg_coeff: false
+nbvp/tree/return_to_origin: false
+
+# bounding box: necessary to limit the simulation 
+# scenario (smaller than actual gazebo scenario)
+# MAVROS WORLD (X = RIGHT; Y = FORWARD)
+bbx/minX: -14
+bbx/minY: -14.0
+bbx/minZ: 0.0
+bbx/maxX: 14
+bbx/maxY: 14.0
+bbx/maxZ: 2.0
+bbx/softBounds: false
+
+pcl_throttle: 0.36
+inspection_throttle: 0.5
