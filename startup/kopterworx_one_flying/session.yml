@@ -12,12 +12,12 @@ windows:
   - gazebo:
       layout: tiled
       panes:
-        - waitForRos; roslaunch ardupilot_gazebo kopterworx.launch use_sim_time:=true enable_velodyne:=true max_range:=20 world:=$(rospack find interface_nbvp_rotors)/worlds/nbv.world x:=-2 y:=0
+        - waitForRos; roslaunch ardupilot_gazebo kopterworx.launch use_sim_time:=true enable_velodyne:=true max_range:=20 world:=$(rospack find interface_nbvp_rotors)/worlds/apartment.world x:=0 y:=0
   - arm&takeof:
       layout: tiled
       panes:
         - waitForRos; waitForOdometry; roslaunch uav_ros_control pid_carrot.launch manual_takeoff:=false
-        - rosrun ardupilot_gazebo automatic_takeoff.sh 1.0
+        - rosrun ardupilot_gazebo automatic_takeoff.sh 0.7
   - trajectory:
       layout: tiled
       panes:
@@ -27,7 +27,7 @@ windows:
       panes:
         - waitForRos; waitForOdometry; roslaunch interface_nbvp_rotors planner.launch
         - waitForRos; waitForOdometry; roslaunch interface_nbvp_rotors execute_trajectory.launch
-        - "#waitForRos; waitForOdometry; roslaunch interface_nbvp_rotors kopterworx_exploration.launch"
+        - "waitForRos; waitForOdometry; roslaunch interface_nbvp_rotors kopterworx_exploration.launch"
   - rviz:
       layout: tiled
       panes:
