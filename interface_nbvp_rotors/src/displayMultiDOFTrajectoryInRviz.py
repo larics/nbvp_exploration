@@ -57,7 +57,7 @@ class displayMultiDOFTrajectoryInRviz():
 		# print len(self.trajectory.points)
 
 		if self.appendFlag == False:
-			print "Append Flag False"
+			# print "Append Flag False"
 			self.path.poses = []
 
 		for i in range(len(self.trajectory.points)):
