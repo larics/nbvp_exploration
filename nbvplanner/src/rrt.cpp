@@ -367,7 +367,9 @@ void nbvInspection::RrtTree::iterate(int iterations)
     newNode->gain_ = newParent->gain_
         + samplePathWithCubes(newNode->state_, newParent->state_, params_.navigationFrame_) 
         * exp(-params_.degressiveCoeff_ * newNode->distance_);
-    // std::cout << "Gain: " << newNode->gain_ << std::endl;
+    if (newNode->gain_ != 0){
+      std::cout << "Node gain, distance : " << newNode->gain_ << ", " << newNode->distance_ << std::endl;
+    }
     kd_insert3(kdTree_, newState.x(), newState.y(), newState.z(), newNode);
     // Display new node
     publishNode(newNode);
@@ -827,14 +829,14 @@ void nbvInspection::RrtTree::visualizeCuboid(StateVec start, StateVec end)
   p.pose.orientation.y = q.y();
   p.pose.orientation.z = q.z();
   p.pose.orientation.w = q.w();
-  p.scale.x = dir.norm();
-  p.scale.y = 6;
-  p.scale.z = 6;
+  p.scale.x = params_.gainRange_;
+  p.scale.y = params_.gainRange_;
+  p.scale.z = params_.gainRange_;
   p.color.r = 1.0;
   p.color.g = 0.4;
   p.color.b = 0.8;
   p.color.a = 0.5;
-  p.lifetime = ros::Duration(10.0);
+  p.lifetime = ros::Duration(5.0);
   p.frame_locked = false;
   params_.inspectionPath_.publish(p);
 }
@@ -1072,9 +1074,13 @@ double nbvInspection::RrtTree::gainCuboid(StateVec state, double distance, doubl
                 multipliers[1][i], multipliers[2][i], multipliers[3][i]);
   }
 
-  double volume = unknownNum * pow(resolution, 3.0); 
-  gain = volume;
-  // gain = (double)unknownNum / (double)allNum;
+  // double volume = unknownNum * pow(resolution, 3.0); 
+  // gain = volume;
+  gain = 1000 * ((double)unknownNum / (double)allNum);
+  if (unknownNum != 0)
+  {
+    std::cout << "Unknown, gain: " << unknownNum << ", " << gain << std::endl;
+  }
   return gain;
 }
 
@@ -1104,10 +1110,10 @@ int nbvInspection::RrtTree::castUnknown(StateVec state, double a, double distanc
         }
         double sax = dx * xx + dy * xy;
         double say = dx * yx + dy * yy;
-        if (sax < 0 || say < 0)
-        {
-          continue;
-        }
+        // if (sax < 0 || say < 0)
+        // {
+        //   continue;
+        // }
         // Global position
         double ax = state[0] + sax;
         double ay = state[1] + say;
@@ -1123,7 +1129,7 @@ int nbvInspection::RrtTree::castUnknown(StateVec state, double a, double distanc
         volumetric_mapping::OctomapManager::CellStatus node = manager_->getCellProbabilityPoint(
           vec, &probability);
         // If the point is inside the cuboid
-        if (std::abs(sax) < distance / 2 && std::abs(say) < a / 2) {
+        if (std::abs(sax) < a / 2  && std::abs(say) < a / 2) {
           // Mark the unknown cell
           if (node == volumetric_mapping::OctomapManager::CellStatus::kUnknown) {
           unknownNum++;
@@ -1464,7 +1470,7 @@ double nbvInspection::RrtTree::samplePathWithCubes(StateVec start, StateVec end,
   state[0] = origin[0];
   state[1] = origin[1];
   state[2] = origin[2];
-  gain += gainCuboid(state, distance.norm(), params_.gainRange_);
+  gain += gainCuboid(state, params_.gainRange_, params_.gainRange_);
   // Visualize cuboid on the path segment
   // visualizeCuboid(start, end);
   return gain;
