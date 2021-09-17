@@ -4,13 +4,13 @@
   <arg name="mav_name"              default="red"/>
   <arg name="parent_frame"          default="mavros/world"/>
   <arg name="child_frame"           default="base_link"/>
-  <arg name="resolution"            default="0.15"/>
+  <arg name="resolution"            default="0.2"/>
   <arg name="visualize_max_z"       default="2.5"/>
   <arg name="sensor_max_range"      default="20.0"/>
   <arg name="odometry"              default="mavros/global_position/local"/>
   <arg name="map_publish_frequency" default="1.0"/>
   <arg name="pcl_topic"             default="velodyne_points"/>
-  <arg name="param_file"            default="$(find interface_nbvp_rotors)/resource/exploration_large_maze.yaml"/>
+  <arg name="param_file"            default="$(find interface_nbvp_rotors)/resource/exploration_apartment.yaml"/>
   <arg name="waypoint_x"            default="0"/>
   <arg name="waypoint_y"            default="0"/>
   <arg name="waypoint_z"            default="1"/>
@@ -45,10 +45,6 @@
       <remap from="command/trajectory"  to="$(arg trajectory)"/>
       <rosparam command="load"          file="$(arg param_file)"/>
     </node>
-
-    <node name="displayMultiDofTrajectoryInRviz" pkg="interface_nbvp_rotors" 
-      type="displayMultiDOFTrajectoryInRviz.py" output="screen" />
-      <remap from="command/trajectory"  to="$(arg trajectory)"/>
   </group>
 
 </launch>
