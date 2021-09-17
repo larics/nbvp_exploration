@@ -1,9 +1,9 @@
 # nbvp_exploration
-A Shadowcasting-Based Next-Best-View Planner for 3D Exploration
-
 This repository contains the code for a shadowcasting-based next-best-view planner, presented in the paper:\
 **A Shadowcasting-Based Next-Best_View Planner for Autonomous 3D Exploration**\
 Ana Batinovic, Antun Ivanovic, Tamara Petrovic and Stjepan Bogdan.
+
+The repository is based on the proposed [nbvplanner](https://github.com/ethz-asl/nbvplanner).
 
 Proposed shadowcasting-based next-best-view planner is capable of autonomously exploring a previously unknown bounded area and creating an OctoMap of the environment. The results showed an improved behaviour in terms of both computation and total exploration time compared to state-of-the-art strategies. The proposed information gain calculation and path evaluation ensures target evaluation in a short computation time, while a novel dead end recovery algorithm speeds up the exploration process. This 3D exploration planner has been successfully tested and analysed in simulation scenarios and compared with state-of-the-are strategies.
 
