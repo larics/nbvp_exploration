@@ -27,7 +27,6 @@ nbvp/tree/cuttoff_iterations: 400
 nbvp/dt: 0.1
 
 nbvp/log/throttle: 0.25
-nbvp/log/on: false
 
 nbvp/gain/visualization: true
 nbvp/gain/update_deg_coeff: false

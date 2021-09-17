@@ -25,7 +25,6 @@
 #include <nav_msgs/Odometry.h>
 #include <kdtree/kdtree.h>
 #include <nbvplanner/tree.h>
-#include <nbvplanner/mesh_structure.h>
 
 #define SQ(x) ((x)*(x))
 #define SQRT2 0.70711
@@ -38,7 +37,7 @@ class RrtTree : public TreeBase<Eigen::Vector4d>
   typedef Eigen::Vector4d StateVec;
   
   RrtTree();
-  RrtTree(mesh::StlMesh * mesh, volumetric_mapping::OctomapManager * manager);
+  RrtTree(volumetric_mapping::OctomapManager * manager);
   ~RrtTree();
   virtual void setStateFromPoseMsg(const geometry_msgs::PoseWithCovarianceStamped& pose);
   virtual void setStateFromOdometryMsg(const nav_msgs::Odometry& pose);

@@ -50,7 +50,6 @@ nbvInspection::nbvPlanner<stateVec>::nbvPlanner(const ros::NodeHandle& nh,
                                          &nbvInspection::nbvPlanner<stateVec>::volumeCallback,
                                          this);
   params_.inspectionPath_ = nh_.advertise<visualization_msgs::Marker>("inspectionPath", 1000);
-  evadePub_ = nh_.advertise<multiagent_collision_check::Segment>("/evasionSegment", 100);
   plannerService_ = nh_.advertiseService("nbvplanner",
                                          &nbvInspection::nbvPlanner<stateVec>::plannerCallback,
                                          this);
@@ -73,60 +72,8 @@ nbvInspection::nbvPlanner<stateVec>::nbvPlanner(const ros::NodeHandle& nh,
     ROS_ERROR("Could not start the planner. Parameters missing!");
   }
 
-  // Precompute the camera field of view boundaries. The normals of the separating hyperplanes are stored
-  /*
-  for (int i = 0; i < params_.camPitch_.size(); i++) {
-    double pitch = M_PI * params_.camPitch_[i] / 180.0;
-    double camTop = (pitch - M_PI * params_.camVertical_[i] / 360.0) + M_PI / 2.0;
-    double camBottom = (pitch + M_PI * params_.camVertical_[i] / 360.0) - M_PI / 2.0;
-    double side = M_PI * (params_.camHorizontal_[i]) / 360.0 - M_PI / 2.0;
-    Vector3d bottom(cos(camBottom), 0.0, -sin(camBottom));
-    Vector3d top(cos(camTop), 0.0, -sin(camTop));
-    Vector3d right(cos(side), sin(side), 0.0);
-    Vector3d left(cos(side), -sin(side), 0.0);
-    AngleAxisd m = AngleAxisd(pitch, Vector3d::UnitY());
-    Vector3d rightR = m * right;
-    Vector3d leftR = m * left;
-    rightR.normalize();
-    leftR.normalize();
-    std::vector<Eigen::Vector3d> camBoundNormals;
-    camBoundNormals.push_back(bottom);
-    // ROS_INFO("bottom: (%2.2f, %2.2f, %2.2f)", bottom[0], bottom[1], bottom[2]);
-    camBoundNormals.push_back(top);
-    // ROS_INFO("top: (%2.2f, %2.2f, %2.2f)", top[0], top[1], top[2]);
-    camBoundNormals.push_back(rightR);
-    // ROS_INFO("rightR: (%2.2f, %2.2f, %2.2f)", rightR[0], rightR[1], rightR[2]);
-    camBoundNormals.push_back(leftR);
-    // ROS_INFO("leftR: (%2.2f, %2.2f, %2.2f)", leftR[0], leftR[1], leftR[2]);
-    params_.camBoundNormals_.push_back(camBoundNormals);
-  }
-  */
-
-  // Load mesh from STL file if provided.
-  std::string ns = ros::this_node::getName();
-  std::string stlPath = "";
-  mesh_ = NULL;
-  if (ros::param::get(ns + "/stl_file_path", stlPath)) {
-    if (stlPath.length() > 0) {
-      if (ros::param::get(ns + "/mesh_resolution", params_.meshResolution_)) {
-        std::fstream stlFile;
-        stlFile.open(stlPath.c_str());
-        if (stlFile.is_open()) {
-          mesh_ = new mesh::StlMesh(stlFile);
-          mesh_->setResolution(params_.meshResolution_);
-          mesh_->setOctomapManager(manager_);
-          mesh_->setCameraParams(params_.camPitch_, params_.camHorizontal_, params_.camVertical_,
-                                 params_.gainRange_);
-        } else {
-          ROS_WARN("Unable to open STL file");
-        }
-      } else {
-        ROS_WARN("STL mesh file path specified but mesh resolution parameter missing!");
-      }
-    }
-  }
   // Initialize the tree instance.
-  tree_ = new RrtTree(mesh_, manager_);
+  tree_ = new RrtTree(manager_);
   tree_->setParams(params_);
   peerPosClient1_ = nh_.subscribe("peer_pose_1", 10,
                                   &nbvInspection::RrtTree::setPeerStateFromPoseMsg1, tree_);
@@ -134,9 +81,6 @@ nbvInspection::nbvPlanner<stateVec>::nbvPlanner(const ros::NodeHandle& nh,
                                   &nbvInspection::RrtTree::setPeerStateFromPoseMsg2, tree_);
   peerPosClient3_ = nh_.subscribe("peer_pose_3", 10,
                                   &nbvInspection::RrtTree::setPeerStateFromPoseMsg3, tree_);
-  // Subscribe to topic used for the collaborative collision avoidance (don't hit your peer).
-  evadeClient_ = nh_.subscribe("/evasionSegment", 10, &nbvInspection::TreeBase<stateVec>::evade,
-                               tree_);
   // Not yet ready. Needs a position message first.
   ready_ = false;
 }
@@ -146,9 +90,6 @@ nbvInspection::nbvPlanner<stateVec>::~nbvPlanner()
 {
   if (manager_) {
     delete manager_;
-  }
-  if (mesh_) {
-    delete mesh_;
   }
 }
 
@@ -196,7 +137,6 @@ bool nbvInspection::nbvPlanner<stateVec>::volumeCallback(nbvplanner::volume_srv:
   allVolumes.data[4] = timeNow;
   volumesPub_.publish(allVolumes);
 
-  // manager_->printVolume(totalVolume, volumes, timeNow, params_.log_); 
   if(params_.updateDegressiveCoeff_){
     manager_->calculateDerivation(volumes, timeNow);
     tree_->updateCoeff();
@@ -263,7 +203,7 @@ bool nbvInspection::nbvPlanner<stateVec>::plannerCallback(nbvplanner::nbvp_srv::
       } else {
           ROS_INFO("No gain found, shutting down");
           ros::shutdown();
-          system("tmux kill-session -t single_kopter");
+          // system("tmux kill-session -t single_kopter");
           return true;
         }
     }
@@ -299,16 +239,6 @@ bool nbvInspection::nbvPlanner<stateVec>::plannerCallback(nbvplanner::nbvp_srv::
   res.path = tree_->getBestPathNodes(req.header.frame_id);
 
   tree_->memorizeBestBranch();
-  // Publish path to block for other agents (multi agent only).
-  multiagent_collision_check::Segment segment;
-  segment.header.stamp = ros::Time::now();
-  segment.header.frame_id = params_.navigationFrame_;
-  if (!res.path.empty()) {
-    segment.poses.push_back(res.path.front());
-    segment.poses.push_back(res.path.back());
-  }
-  evadePub_.publish(segment);
-
   double computationTime;
   double timeNow = ros::Time::now().toSec();
   computationTime = (ros::Time::now() - computationStartTime).toSec();
@@ -321,27 +251,6 @@ bool nbvInspection::nbvPlanner<stateVec>::plannerCallback(nbvplanner::nbvp_srv::
   allTimes.data[1] = computationTime2;
   allTimes.data[2] = computationTime;
   compTimesPub_.publish(allTimes);
-  /*
-  if(params_.log) {
-    //std::ofstream rosTimeLog("~/DataLog/rosTime.txt", std::ios::app | std::ios::out);
-    //rosTimeLog << ros::Time::now() << "\n";
-    std::ofstream computationTimeLog("~/DataLog/computationTime.txt", std::ios::app | std::ios::out);
-    computationTimeLog << computationTime << "\n";
-
-    time_t rawtime;
-    struct tm * ptm;
-    time(&rawtime);
-    ptm = gmtime(&rawtime);
-    std::string logFilePath = ros::package::getPath("nbvplanner") + "/Computation Data/";
-    system(("mkdir -p " + logFilePath).c_str());
-    logFilePath += "/";
-    //setting path..
-    std::ofstream computationTimeLog((logFilePath + "computationTime.txt").c_str(), std::ios:: app | std::ios::out);
-    //writing data..
-    computationTimeLog << computationTime << "\n";
-  }
-  */
-
   return true;
 }
 
@@ -523,10 +432,6 @@ bool nbvInspection::nbvPlanner<stateVec>::setParams()
         "No estimated overshoot value for collision avoidance specified. Looking for %s. Default is 0.5m.",
         (ns + "/system/bbx/overshoot").c_str());
   }
-  params_.log_ = false;
-  if (!ros::param::get(ns + "/nbvp/log/on", params_.log_)) {
-    ROS_WARN("Logging is off by default. Turn on with %s: true", (ns + "/nbvp/log/on").c_str());
-  }
   params_.gainVisualization_ = false;
   if (!ros::param::get(ns + "/nbvp/gain/visualization", params_.gainVisualization_)) {
     ROS_WARN("Gain visualization is off by default. Turn on with %s: true", (ns + "/nbvp/gain/visualization").c_str());
@@ -601,12 +506,4 @@ void nbvInspection::nbvPlanner<stateVec>::insertPointcloudWithTfCamDown(
     last += params_.pcl_throttle_;
   }
 }
-
-template<typename stateVec>
-void nbvInspection::nbvPlanner<stateVec>::evasionCallback(
-    const multiagent_collision_check::Segment& segmentMsg)
-{
-  tree_->evade(segmentMsg);
-}
-
 #endif // NBVP_HPP_

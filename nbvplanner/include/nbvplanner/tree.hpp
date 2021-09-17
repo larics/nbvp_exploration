@@ -47,10 +47,8 @@ nbvInspection::TreeBase<stateVec>::TreeBase()
 }
 
 template<typename stateVec>
-nbvInspection::TreeBase<stateVec>::TreeBase(mesh::StlMesh * mesh,
-                                            volumetric_mapping::OctomapManager * manager)
+nbvInspection::TreeBase<stateVec>::TreeBase(volumetric_mapping::OctomapManager * manager)
 {
-  mesh_ = mesh;
   manager_ = manager;
   bestGain_ = params_.zero_gain_;
   bestNode_ = NULL;
@@ -107,24 +105,6 @@ void nbvInspection::TreeBase<stateVec>::insertPointcloudWithTf(
     const sensor_msgs::PointCloud2::ConstPtr& pointcloud)
 {
   manager_->insertPointcloudWithTf(pointcloud);
-}
-
-template<typename stateVec>
-void nbvInspection::TreeBase<stateVec>::evade(const multiagent_collision_check::Segment& segmentMsg) {
-  int i;
-  for(i = 0; i < agentNames_.size(); i++) {
-    if(agentNames_[i].compare(segmentMsg.header.frame_id) == 0) {
-      break;
-    }
-  }
-  if (i == agentNames_.size()) {
-    agentNames_.push_back(segmentMsg.header.frame_id);
-    segments_.push_back(new std::vector<Eigen::Vector3d>);
-  }
-  segments_[i]->clear();
-  for(typename std::vector<geometry_msgs::Pose>::const_iterator it = segmentMsg.poses.begin(); it != segmentMsg.poses.end(); it++) {
-    segments_[i]->push_back(Eigen::Vector3d(it->position.x, it->position.y, it->position.z));
-  }
 }
 
 template<typename stateVec>

@@ -570,28 +570,7 @@ void OctomapWorld::printVolume(double totalVolume, double *volumes, double timeN
   ROS_INFO_STREAM(RED << "\n[Occupied Volume]: " << occupiedVolume <<std::setprecision(4)<<" ("<<occupiedVolume*p<<"%)" << RESET
           << GREEN << "\n[Free Volume]: " <<std::setprecision(ss)<< freeVolume<<std::setprecision(4)<<" ("<<freeVolume*p<<"%)" << RESET
           << BLUE << "\n[Hidden Volume]: " <<std::setprecision(ss)<< undiscoveredVolume<<std::setprecision(4)<<" ("<<undiscoveredVolume*p<<"%)" << RESET
-          << YELLOW << "\n[Total Volume]: "<<std::setprecision(ss)<< totalVolume << RESET);
-
-    if(fileLog){
-    time_t rawtime;
-    struct tm * ptm;
-    time(&rawtime);
-    ptm = gmtime(&rawtime);
-    std::string logFilePath = ros::package::getPath("nbvplanner") + "/Volumes/";
-    system(("mkdir -p " + logFilePath).c_str());
-    logFilePath += "/";
-    //setting path..
-    std::ofstream fileFreeVolume((logFilePath + "freeVolume.txt").c_str(), std::ios:: app | std::ios::out);
-    std::ofstream fileOccupiedVolume((logFilePath + "occupiedVolume.txt").c_str(), std::ios::app | std::ios::out);
-    std::ofstream fileUndiscoveredVolume((logFilePath + "undiscoveredVolume.txt").c_str(), std::ios::app | std::ios::out);
-    std::ofstream fileTime((logFilePath + "time.txt").c_str(), std::ios::app | std::ios::out);
-    //writing data..
-    fileFreeVolume << freeVolume << "\n";
-    fileOccupiedVolume << occupiedVolume << "\n";
-    fileUndiscoveredVolume << undiscoveredVolume << "\n";
-    fileTime << ros::Time::now() << "\n";
-    }
-  
+          << YELLOW << "\n[Total Volume]: "<<std::setprecision(ss)<< totalVolume << RESET); 
 }
 
 void OctomapWorld::calculateDerivation(double *volumes, double timeNow){

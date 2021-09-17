@@ -18,7 +18,6 @@
 #define RRTTREE_HPP_
 
 #include <cstdlib>
-#include <multiagent_collision_check/multiagent_collision_checker.h>
 #include <nbvplanner/rrt.h>
 #include <nbvplanner/tree.hpp>
 
@@ -30,54 +29,15 @@ nbvInspection::RrtTree::RrtTree()
   for (int i = 0; i < 4; i++) {
     inspectionThrottleTime_.push_back(ros::Time::now().toSec());
   }
-
-  // If logging is required, set up files here
-  bool ifLog = false;
-  std::string ns = ros::this_node::getName();
-  ros::param::get(ns + "/nbvp/log/on", ifLog);
-  if (ifLog) {
-    time_t rawtime;
-    struct tm * ptm;
-    time(&rawtime);
-    ptm = gmtime(&rawtime);
-    logFilePath_ = ros::package::getPath("nbvplanner") + "/data/"
-        + std::to_string(ptm->tm_year + 1900) + "_" + std::to_string(ptm->tm_mon + 1) + "_"
-        + std::to_string(ptm->tm_mday) + "_" + std::to_string(ptm->tm_hour) + "_"
-        + std::to_string(ptm->tm_min) + "_" + std::to_string(ptm->tm_sec);
-    system(("mkdir -p " + logFilePath_).c_str());
-    logFilePath_ += "/";
-    fileResponse_.open((logFilePath_ + "response.txt").c_str(), std::ios::out);
-    filePath_.open((logFilePath_ + "path.txt").c_str(), std::ios::out);
-  }
 }
 
-nbvInspection::RrtTree::RrtTree(mesh::StlMesh * mesh, volumetric_mapping::OctomapManager * manager)
+nbvInspection::RrtTree::RrtTree(volumetric_mapping::OctomapManager * manager)
 {
-  mesh_ = mesh;
   manager_ = manager;
   kdTree_ = kd_create(3);
   iterationCount_ = 0;
   for (int i = 0; i < 4; i++) {
     inspectionThrottleTime_.push_back(ros::Time::now().toSec());
-  }
-
-  // If logging is required, set up files here
-  bool ifLog = false;
-  std::string ns = ros::this_node::getName();
-  ros::param::get(ns + "/nbvp/log/on", ifLog);
-  if (ifLog) {
-    time_t rawtime;
-    struct tm * ptm;
-    time(&rawtime);
-    ptm = gmtime(&rawtime);
-    logFilePath_ = ros::package::getPath("nbvplanner") + "/data/"
-        + std::to_string(ptm->tm_year + 1900) + "_" + std::to_string(ptm->tm_mon + 1) + "_"
-        + std::to_string(ptm->tm_mday) + "_" + std::to_string(ptm->tm_hour) + "_"
-        + std::to_string(ptm->tm_min) + "_" + std::to_string(ptm->tm_sec);
-    system(("mkdir -p " + logFilePath_).c_str());
-    logFilePath_ += "/";
-    fileResponse_.open((logFilePath_ + "response.txt").c_str(), std::ios::out);
-    filePath_.open((logFilePath_ + "path.txt").c_str(), std::ios::out);
   }
 }
 
@@ -124,53 +84,6 @@ void nbvInspection::RrtTree::setStateFromPoseMsg(
   static double logThrottleTime = ros::Time::now().toSec();
   if (ros::Time::now().toSec() - logThrottleTime > params_.log_throttle_) {
     logThrottleTime += params_.log_throttle_;
-    if (params_.log_) {
-      for (int i = 0; i < root_.size() - 1; i++) {
-        fileResponse_ << root_[i] << ",";
-      }
-      fileResponse_ << root_[root_.size() - 1] << "\n";
-    }
-  }
-  // Update the inspected parts of the mesh using the current position
-  if (ros::Time::now().toSec() - inspectionThrottleTime_[0] > params_.inspection_throttle_) {
-    inspectionThrottleTime_[0] += params_.inspection_throttle_;
-    if (mesh_) {
-      geometry_msgs::Pose poseTransformed;
-      tf::poseTFToMsg(transform * poseTF, poseTransformed);
-      mesh_->setPeerPose(poseTransformed, 0);
-      mesh_->incorporateViewFromPoseMsg(poseTransformed, 0);
-      // Publish the mesh marker for visualization in rviz
-      visualization_msgs::Marker inspected;
-      inspected.ns = "meshInspected";
-      inspected.id = 0;
-      inspected.header.seq = inspected.id;
-      inspected.header.stamp = pose.header.stamp;
-      inspected.header.frame_id = params_.navigationFrame_;
-      inspected.type = visualization_msgs::Marker::TRIANGLE_LIST;
-      inspected.lifetime = ros::Duration(10);
-      inspected.action = visualization_msgs::Marker::ADD;
-      inspected.pose.position.x = 0.0;
-      inspected.pose.position.y = 0.0;
-      inspected.pose.position.z = 0.0;
-      inspected.pose.orientation.x = 0.0;
-      inspected.pose.orientation.y = 0.0;
-      inspected.pose.orientation.z = 0.0;
-      inspected.pose.orientation.w = 1.0;
-      inspected.scale.x = 1.0;
-      inspected.scale.y = 1.0;
-      inspected.scale.z = 1.0;
-      visualization_msgs::Marker uninspected = inspected;
-      uninspected.header.seq++;
-      uninspected.id++;
-      uninspected.ns = "meshUninspected";
-      mesh_->assembleMarkerArray(inspected, uninspected);
-      if (inspected.points.size() > 0) {
-        params_.inspectionPath_.publish(inspected);
-      }
-      if (uninspected.points.size() > 0) {
-        params_.inspectionPath_.publish(uninspected);
-      }
-    }
   }
 }
 
@@ -202,53 +115,6 @@ void nbvInspection::RrtTree::setStateFromOdometryMsg(
   static double logThrottleTime = ros::Time::now().toSec();
   if (ros::Time::now().toSec() - logThrottleTime > params_.log_throttle_) {
     logThrottleTime += params_.log_throttle_;
-    if (params_.log_) {
-      for (int i = 0; i < root_.size() - 1; i++) {
-        fileResponse_ << root_[i] << ",";
-      }
-      fileResponse_ << root_[root_.size() - 1] << "\n";
-    }
-  }
-  // Update the inspected parts of the mesh using the current position
-  if (ros::Time::now().toSec() - inspectionThrottleTime_[0] > params_.inspection_throttle_) {
-    inspectionThrottleTime_[0] += params_.inspection_throttle_;
-    if (mesh_) {
-      geometry_msgs::Pose poseTransformed;
-      tf::poseTFToMsg(transform * poseTF, poseTransformed);
-      mesh_->setPeerPose(poseTransformed, 0);
-      mesh_->incorporateViewFromPoseMsg(poseTransformed, 0);
-      // Publish the mesh marker for visualization in rviz
-      visualization_msgs::Marker inspected;
-      inspected.ns = "meshInspected";
-      inspected.id = 0;
-      inspected.header.seq = inspected.id;
-      inspected.header.stamp = pose.header.stamp;
-      inspected.header.frame_id = params_.navigationFrame_;
-      inspected.type = visualization_msgs::Marker::TRIANGLE_LIST;
-      inspected.lifetime = ros::Duration(10);
-      inspected.action = visualization_msgs::Marker::ADD;
-      inspected.pose.position.x = 0.0;
-      inspected.pose.position.y = 0.0;
-      inspected.pose.position.z = 0.0;
-      inspected.pose.orientation.x = 0.0;
-      inspected.pose.orientation.y = 0.0;
-      inspected.pose.orientation.z = 0.0;
-      inspected.pose.orientation.w = 1.0;
-      inspected.scale.x = 1.0;
-      inspected.scale.y = 1.0;
-      inspected.scale.z = 1.0;
-      visualization_msgs::Marker uninspected = inspected;
-      uninspected.header.seq++;
-      uninspected.id++;
-      uninspected.ns = "meshUninspected";
-      mesh_->assembleMarkerArray(inspected, uninspected);
-      if (inspected.points.size() > 0) {
-        params_.inspectionPath_.publish(inspected);
-      }
-      if (uninspected.points.size() > 0) {
-        params_.inspectionPath_.publish(uninspected);
-      }
-    }
   }
 }
 
@@ -269,14 +135,6 @@ void nbvInspection::RrtTree::setPeerStateFromPoseMsg(
   tf::poseMsgToTF(pose.pose.pose, poseTF);
   geometry_msgs::Pose poseTransformed;
   tf::poseTFToMsg(transform * poseTF, poseTransformed);
-  // Update the inspected parts of the mesh using the current position
-  if (ros::Time::now().toSec() - inspectionThrottleTime_[n_peer] > params_.inspection_throttle_) {
-    inspectionThrottleTime_[n_peer] += params_.inspection_throttle_;
-    if (mesh_) {
-      mesh_->setPeerPose(poseTransformed, n_peer);
-      mesh_->incorporateViewFromPoseMsg(poseTransformed, n_peer);
-    }
-  }
 }
 
 void nbvInspection::RrtTree::iterate(int iterations)
@@ -341,8 +199,7 @@ void nbvInspection::RrtTree::iterate(int iterations)
   if (volumetric_mapping::OctomapManager::CellStatus::kFree
       == manager_->getLineStatusBoundingBox(
           origin, direction + origin + direction.normalized() * params_.dOvershoot_,
-          params_.boundingBox_)
-      && !multiagent::isInCollision(newParent->state_, newState, params_.boundingBox_, segments_)) {
+          params_.boundingBox_)) {
     // Sample the new orientation
     //newState[3] = 2.0 * M_PI * (((double) rand()) / ((double) RAND_MAX) - 0.5);
 
@@ -400,14 +257,6 @@ void nbvInspection::RrtTree::initialize()
 // Initialize kd-tree with root node and prepare log file
   kdTree_ = kd_create(3);
 
-  if (params_.log_) {
-    if (fileTree_.is_open()) {
-      fileTree_.close();
-    }
-    fileTree_.open((logFilePath_ + "tree" + std::to_string(iterationCount_) + ".txt").c_str(),
-                   std::ios::out);
-  }
-
   rootNode_ = new Node<StateVec>;
   rootNode_->distance_ = 0.0;
   rootNode_->gain_ = params_.zero_gain_;
@@ -452,9 +301,7 @@ void nbvInspection::RrtTree::initialize()
     if (volumetric_mapping::OctomapManager::CellStatus::kFree
         == manager_->getLineStatusBoundingBox(
             origin, direction + origin + direction.normalized() * params_.dOvershoot_,
-            params_.boundingBox_)
-        && !multiagent::isInCollision(newParent->state_, newState, params_.boundingBox_,
-                                      segments_)) {
+            params_.boundingBox_)) {
       // Create new node and insert into tree
       nbvInspection::Node<StateVec> * newNode = new nbvInspection::Node<StateVec>;
       newNode->state_ = newState;
@@ -686,21 +533,6 @@ void nbvInspection::RrtTree::updateDegressiveCoeff(){
 
   degressiveCoeff_ = params_.degressiveCoeff_;
   ROS_INFO("[STATUS]Degressive Coeff.: %f", degressiveCoeff_);
-
-/*
-    if(params_.updateDegressiveCoeff){
-      std::string logFilePath = ros::package::getPath("nbvplanner") + "/Degressive Coeff/";
-      system(("mkdir -p " + logFilePath).c_str());
-      logFilePath += "/";
-
-      //setting path..
-      std::ofstream fileDegCoeff((logFilePath + "degressiveCoeff.txt").c_str(), std::ios::app | std::ios::out);
-      std::ofstream fileStep((logFilePath + "step.txt").c_str(), std::ios::app | std::ios::out);
-      //writing data..
-      fileDegCoeff << degressiveCoeff_ << "\n";
-      fileStep << iterationCount_ << "\n";
-    }
-*/
 }
 
 void nbvInspection::RrtTree::visualizeGain(Eigen::Vector3d vec)
@@ -971,19 +803,6 @@ double nbvInspection::RrtTree::gain(StateVec state)
   }
 // Scale with volume
   gain *= pow(disc, 3.0);
-
-//Area exploration
-// Check the gain added by inspectable surface
-/*  if (mesh_) {
-    tf::Transform transform;
-    transform.setOrigin(tf::Vector3(state.x(), state.y(), state.z()));
-    tf::Quaternion quaternion;
-    quaternion.setEuler(0.0, 0.0, state[3]);
-    transform.setRotation(quaternion);
-    gain += params_.igArea_ * mesh_->computeInspectableArea(transform);
-  }
-  //-------------redundant--------
-  */
   return gain;
 }
 
@@ -1058,7 +877,7 @@ double nbvInspection::RrtTree::gainCuboid(StateVec state, double distance, doubl
   const double resolution = manager_->getResolution();
   int unknownNum = 0;
   // All points in 3D space
-  double allNum = (distance / resolution) * (a / resolution) * (a / resolution);
+  double allNum = (a / resolution) * (a / resolution) * (a / resolution);
 
   static double multipliers[4][8] = {
     {1, 0, 0, -1, -1, 0, 0, 1},
@@ -1074,9 +893,9 @@ double nbvInspection::RrtTree::gainCuboid(StateVec state, double distance, doubl
                 multipliers[1][i], multipliers[2][i], multipliers[3][i]);
   }
 
-  // double volume = unknownNum * pow(resolution, 3.0); 
-  // gain = volume;
-  gain = 1000 * ((double)unknownNum / (double)allNum);
+  double volume = unknownNum * pow(resolution, 3.0); 
+  gain = volume;
+  // gain = 1000 * ((double)unknownNum / (double)allNum);
   if (unknownNum != 0)
   {
     std::cout << "Unknown, gain: " << unknownNum << ", " << gain << std::endl;
@@ -1095,8 +914,8 @@ int nbvInspection::RrtTree::castUnknown(StateVec state, double a, double distanc
   }
 
   double next_start_slope = start_slope;
-  for (double z = -a / 2; z <= a / 2; z += resolution){
-    for (double i = row; i <= a / 2; i += resolution) {
+  for (double z = -a / 2; z <= a / 2 / resolution; z += 1){
+    for (double i = row; i <= a / 2 / resolution; i += 1) {
       bool blocked = false;
       for (double dx = -i, dy = -i; dx <= 0; dx += resolution) {
         // Slide l_slope and r_slope in one row, left goes through the first point
@@ -1269,17 +1088,6 @@ void nbvInspection::RrtTree::publishNode(Node<StateVec> * node)
   p.lifetime = ros::Duration(10.0);
   p.frame_locked = false;
   params_.inspectionPath_.publish(p);
-
-  if (params_.log_) {
-    for (int i = 0; i < node->state_.size(); i++) {
-      fileTree_ << node->state_[i] << ",";
-    }
-    fileTree_ << node->gain_ << ",";
-    for (int i = 0; i < node->parent_->state_.size(); i++) {
-      fileTree_ << node->parent_->state_[i] << ",";
-    }
-    fileTree_ << node->parent_->gain_ << "\n";
-  }
 }
 
 void nbvInspection::RrtTree::publishBestNode()
@@ -1417,12 +1225,6 @@ std::vector<geometry_msgs::Pose> nbvInspection::RrtTree::samplePath(StateVec sta
     geometry_msgs::Pose pose;
     tf::poseTFToMsg(poseTF, pose);
     ret.push_back(pose);
-    if (params_.log_) {
-      filePath_ << poseTF.getOrigin().x() << ",";
-      filePath_ << poseTF.getOrigin().y() << ",";
-      filePath_ << poseTF.getOrigin().z() << ",";
-      filePath_ << tf::getYaw(poseTF.getRotation()) << "\n";
-    }
   }
   return ret;
 }
@@ -1472,7 +1274,7 @@ double nbvInspection::RrtTree::samplePathWithCubes(StateVec start, StateVec end,
   state[2] = origin[2];
   gain += gainCuboid(state, params_.gainRange_, params_.gainRange_);
   // Visualize cuboid on the path segment
-  // visualizeCuboid(start, end);
+  visualizeCuboid(start, end);
   return gain;
 }
 

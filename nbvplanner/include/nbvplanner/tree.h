@@ -22,8 +22,6 @@
 #include <geometry_msgs/PoseWithCovarianceStamped.h>
 #include <nav_msgs/Odometry.h>
 #include <octomap_world/octomap_manager.h>
-#include <multiagent_collision_check/Segment.h>
-#include <nbvplanner/mesh_structure.h>
 
 namespace nbvInspection {
 
@@ -69,7 +67,6 @@ struct Params
   ros::Publisher inspectionPath_;
   std::string navigationFrame_;
 
-  bool log_;
   bool gainVisualization_;
   bool updateDegressiveCoeff_;
   bool returnToOrigin_;
@@ -100,7 +97,6 @@ class TreeBase
   double bestGain_;
   Node<stateVec> * bestNode_;
   Node<stateVec> * rootNode_;
-  mesh::StlMesh * mesh_;
   volumetric_mapping::OctomapManager * manager_;
   stateVec root_;
   stateVec exact_root_;
@@ -108,7 +104,7 @@ class TreeBase
   std::vector<std::string> agentNames_;
  public:
   TreeBase();
-  TreeBase(mesh::StlMesh * mesh, volumetric_mapping::OctomapManager * manager);
+  TreeBase(volumetric_mapping::OctomapManager * manager);
   ~TreeBase();
   virtual void setStateFromPoseMsg(const geometry_msgs::PoseWithCovarianceStamped& pose) = 0;
   virtual void setStateFromOdometryMsg(const nav_msgs::Odometry& pose) = 0;
@@ -116,7 +112,6 @@ class TreeBase
   void setPeerStateFromPoseMsg1(const geometry_msgs::PoseWithCovarianceStamped& pose);
   void setPeerStateFromPoseMsg2(const geometry_msgs::PoseWithCovarianceStamped& pose);
   void setPeerStateFromPoseMsg3(const geometry_msgs::PoseWithCovarianceStamped& pose);
-  void evade(const multiagent_collision_check::Segment& segmentMsg);
   virtual void iterate(int iterations) = 0;
   virtual void initialize() = 0;
   virtual std::vector<geometry_msgs::Pose> getBestEdge(std::string targetFrame) = 0;
