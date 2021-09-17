@@ -1,0 +1,50 @@
+<?xml version="1.0"?>
+
+<launch>
+  <arg name="mav_name"              default="red"/>
+  <arg name="parent_frame"          default="mavros/world"/>
+  <arg name="child_frame"           default="base_link"/>
+  <arg name="resolution"            default="0.2"/>
+  <arg name="visualize_max_z"       default="2.5"/>
+  <arg name="sensor_max_range"      default="20.0"/>
+  <arg name="odometry"              default="mavros/global_position/local"/>
+  <arg name="map_publish_frequency" default="1.0"/>
+  <arg name="pcl_topic"             default="velodyne_points"/>
+  <arg name="param_file"            default="$(find interface_nbvp_rotors)/resource/exploration_apartment.yaml"/>
+  <arg name="waypoint_x"            default="0"/>
+  <arg name="waypoint_y"            default="0"/>
+  <arg name="waypoint_z"            default="1"/>
+  <arg name="trajectory"            default="position_hold/trajectory"/>
+  
+  <group ns="$(arg mav_name)">   
+    <!--tf from mavros/world to red/base_link -->
+    <node name="tf_node" pkg="interface_nbvp_rotors" type="tf_node" output="screen">
+      <param name="child_frame_id"  value="$(arg mav_name)/$(arg child_frame)"/>
+      <param name="parent_frame_id" value="$(arg parent_frame)"/>
+      <remap from="odometry"        to="$(arg odometry)"/>
+    </node>
+   
+    <node name="nbvPlanner" pkg="nbvplanner"  type="nbvPlanner" output="screen">
+      <param name="tf_frame"                  type="string" value="$(arg parent_frame)"/>
+      <param name="resolution"                type="double" value="$(arg resolution)" />
+      <param name="visualize_max_z"           type="double" value="$(arg visualize_max_z)"/>
+      <param name="sensor_max_range"          type="double" value="$(arg sensor_max_range)"/>
+      <param name="probability_hit"           type="double" value="0.9"/>
+      <param name="map_publish_frequency"     type="double" value="$(arg map_publish_frequency)"/>
+      <remap from="pointcloud_throttled"      to="$(arg pcl_topic)"/>
+      <remap from="pose"                      to="smece"/>
+      <remap from="odometry"                  to="$(arg odometry)"/>
+      <rosparam command="load"                file="$(arg param_file)" />
+    </node>
+
+    <node name="exploration" pkg="interface_nbvp_rotors" type="exploration" output="screen">
+      <param name="parent_frame_id"     type="string" value="$(arg parent_frame)"/>
+      <param name="wp_x"                type="double" value="$(arg waypoint_x)" />
+      <param name="wp_y"                type="double" value="$(arg waypoint_y)" />
+      <param name="wp_z"                type="double" value="$(arg waypoint_z)" />
+      <remap from="command/trajectory"  to="$(arg trajectory)"/>
+      <rosparam command="load"          file="$(arg param_file)"/>
+    </node>
+  </group>
+
+</launch>

@@ -1,0 +1,34 @@
+name: single_kopter
+root: ./
+startup_window: roscore
+pre_window: export UAV_NAMESPACE=red; nbvp_ws
+windows:
+  - roscore:
+      layout: tiled
+      panes:
+        - roscore
+        - export SITL_RITW_TERMINAL="tmux new-window -n:ardupilot1"; waitForRos; roslaunch ardupilot_gazebo sim_vehicle.launch enable_console:=false 
+        - waitForRos; rosparam set use_sim_time true; roslaunch ardupilot_gazebo mavros.launch config_file:=custom_config/apm_config.yaml
+  - gazebo:
+      layout: tiled
+      panes:
+        - waitForRos; roslaunch ardupilot_gazebo kopterworx.launch use_sim_time:=true enable_velodyne:=true max_range:=20 world:=$(rospack find interface_nbvp_rotors)/worlds/apartment.world x:=0 y:=0
+  - arm&takeof:
+      layout: tiled
+      panes:
+        - waitForRos; waitForOdometry; roslaunch uav_ros_control pid_carrot.launch manual_takeoff:=false
+        - rosrun ardupilot_gazebo automatic_takeoff.sh 0.7
+  - trajectory:
+      layout: tiled
+      panes:
+        - waitForRos; waitForOdometry; roslaunch uav_ros_tracker topp_tracker.launch tracker_config:=./custom_config/topp_config_custom.yaml
+  - exploration:
+      layout: tiled
+      panes:
+        - waitForRos; waitForOdometry; roslaunch interface_nbvp_rotors planner.launch
+        - waitForRos; waitForOdometry; roslaunch interface_nbvp_rotors execute_trajectory.launch
+        - "waitForRos; waitForOdometry; roslaunch interface_nbvp_rotors kopterworx_exploration.launch"
+  - rviz:
+      layout: tiled
+      panes:
+        - waitForRos; waitForOdometry; rosrun rviz rviz -d ~/nbvp_ws/src/nbvplanner/interface_nbvp_rotors/rviz/nbv.rviz
