@@ -180,7 +180,7 @@ path_planner:
 trajectory_planner:
   toppra_trajectory:
     # Maximum velocities for [x, y, z, yaw]
-    velocities: [0.8, 0.8, 0.5, 1]
+    velocities: [1.5, 1.5, 1.5, 1]
     # Maximum accelerations for [x, y, z, yaw]
     accelerations: [0.5, 0.5, 0.8, 1]
     # If using SO states angular must be set to 1

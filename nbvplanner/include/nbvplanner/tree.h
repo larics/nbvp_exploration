@@ -43,6 +43,7 @@ struct Params
   double gainRange_;
   double degressiveCoeff_;
   double zero_gain_;
+  double threshold_gain_;
 
   double v_max_;
   double dyaw_max_;
@@ -68,8 +69,7 @@ struct Params
   std::string navigationFrame_;
 
   bool gainVisualization_;
-  bool updateDegressiveCoeff_;
-  bool returnToOrigin_;
+  bool resolveDeadEnd_;
   double log_throttle_;
   double pcl_throttle_;
   double inspection_throttle_;
@@ -114,7 +114,6 @@ class TreeBase
   void setPeerStateFromPoseMsg3(const geometry_msgs::PoseWithCovarianceStamped& pose);
   virtual void iterate(int iterations) = 0;
   virtual void initialize() = 0;
-  virtual std::vector<geometry_msgs::Pose> getBestEdge(std::string targetFrame) = 0;
   virtual std::vector<geometry_msgs::Pose> getBestPathNodes(std::string targetFrame) = 0;
   virtual void clear() = 0;
   virtual std::vector<geometry_msgs::Pose> getPathBackToPrevious(std::string targetFrame) = 0;
@@ -124,8 +123,8 @@ class TreeBase
   int getCounter();
   bool gainFound();
   void insertPointcloudWithTf(const sensor_msgs::PointCloud2::ConstPtr& pointcloud);
-  virtual void updateDegressiveCoeff() = 0;
   virtual int getHistorySize() = 0;
+  virtual int getHistoryDeadEndSize() = 0;
   void updateCoeff();
   double getBestGainValue();
 };

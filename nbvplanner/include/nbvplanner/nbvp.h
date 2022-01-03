@@ -49,6 +49,7 @@ class nbvPlanner
   ros::Publisher volumesPub_;
   ros::Publisher compTimesPub_;
   ros::ServiceServer plannerService_;
+  ros::ServiceServer testService_;
   ros::ServiceServer volumeService_;
   ros::Subscriber pointcloud_sub_;
   ros::Subscriber pointcloud_sub_cam_up_;
@@ -56,7 +57,7 @@ class nbvPlanner
   Params params_;
   volumetric_mapping::OctomapManager * manager_;
 
-  bool returnToOrigin = false;
+  bool resolveDeadEnd = false;
 
   bool ready_;
 
@@ -69,6 +70,7 @@ class nbvPlanner
   void posCallback(const geometry_msgs::PoseWithCovarianceStamped& pose);
   void odomCallback(const nav_msgs::Odometry& pose);
   bool plannerCallback(nbvplanner::nbvp_srv::Request& req, nbvplanner::nbvp_srv::Response& res);
+  bool testCallback(std_srvs::EmptyRequest& req, std_srvs::EmptyResponse& res);
   bool volumeCallback(nbvplanner::volume_srv::Request& req, nbvplanner::volume_srv::Response& res);
   void insertPointcloudWithTf(const sensor_msgs::PointCloud2::ConstPtr& pointcloud);
   void insertPointcloudWithTfCamUp(const sensor_msgs::PointCloud2::ConstPtr& pointcloud);

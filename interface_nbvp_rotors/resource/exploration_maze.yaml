@@ -7,30 +7,30 @@ system/laser/pitch: [10.0]
 system/laser/horizontal: [360.0]
 system/laser/vertical: [30.0]
 # bounding box for collision avoidance
-system/bbx/x: 0.35
-system/bbx/y: 0.35
+system/bbx/x: 0.5
+system/bbx/y: 0.5
 system/bbx/z: 0.5
-system/bbx/overshoot: 0.2
+system/bbx/overshoot: 0.1
 
 nbvp/gain/free: 0.0
 nbvp/gain/occupied: 0.0
 nbvp/gain/unmapped: 1.0
 nbvp/gain/area: 0.0
 nbvp/gain/probabilistic: 0.0
-nbvp/gain/range: 10.0
+nbvp/gain/range: 6.0
 nbvp/gain/zero: 0.0
-nbvp/gain/degressive_coeff: 0.8
+nbvp/gain/threshold: 0.1
+nbvp/gain/degressive_coeff: 0.2
 nbvp/tree/extension_range: 1.5
 nbvp/tree/exact_root: true
-nbvp/tree/initial_iterations: 20
+nbvp/tree/initial_iterations: 100
 nbvp/tree/cuttoff_iterations: 400
 nbvp/dt: 0.1
 
 nbvp/log/throttle: 0.25
 
 nbvp/gain/visualization: true
-nbvp/gain/update_deg_coeff: false
-nbvp/tree/return_to_origin: false
+nbvp/tree/resolve_dead_end: true
 
 # bounding box: necessary to limit the simulation 
 # scenario (smaller than actual gazebo scenario)

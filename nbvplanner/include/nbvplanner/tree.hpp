@@ -108,12 +108,6 @@ void nbvInspection::TreeBase<stateVec>::insertPointcloudWithTf(
 }
 
 template<typename stateVec>
-void nbvInspection::TreeBase<stateVec>::updateCoeff()
-{
-  updateDegressiveCoeff();
-}
-
-template<typename stateVec>
 double nbvInspection::TreeBase<stateVec>::getBestGainValue()
 {
   return bestGain_;

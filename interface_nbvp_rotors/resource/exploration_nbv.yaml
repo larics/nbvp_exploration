@@ -19,6 +19,7 @@ nbvp/gain/area: 0.0
 nbvp/gain/probabilistic: 0.0
 nbvp/gain/range: 8.0
 nbvp/gain/zero: 0.0
+nbvp/gain/threshold: 0.1
 nbvp/gain/degressive_coeff: 0.5
 nbvp/tree/extension_range: 2.0
 nbvp/tree/exact_root: true
@@ -29,8 +30,7 @@ nbvp/dt: 0.1
 nbvp/log/throttle: 0.25
 
 nbvp/gain/visualization: true
-nbvp/gain/update_deg_coeff: false
-nbvp/tree/return_to_origin: true
+nbvp/tree/resolve_dead_end: true
 
 # bounding box: necessary to limit the simulation 
 # scenario (smaller than actual gazebo scenario)

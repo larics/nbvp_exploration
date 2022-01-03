@@ -25,6 +25,7 @@
 #include <ros/ros.h>
 #include <ros/package.h>
 #include <tf/tf.h>
+#include <tf2/utils.h>
 #include <std_srvs/Empty.h>
 #include <trajectory_msgs/MultiDOFJointTrajectory.h>
 #include <std_msgs/Bool.h>
@@ -54,7 +55,7 @@ int main(int argc, char** argv)
       > (mav_msgs::default_topics::COMMAND_TRAJECTORY, 5);
   ros::Publisher goals_pub = nh.advertise < geometry_msgs::PoseArray > ("nbvp/goals", 1);
   ros::Subscriber point_reached_sub = nh.subscribe("nbvp/point_reached", 1, &pointReachedCallback);
-  ROS_INFO("Started exploration");
+  ROS_INFO("Exploration started!");
 
   std_srvs::Empty srv;
   bool unpaused = ros::service::call("/gazebo/unpause_physics", srv);
@@ -95,24 +96,13 @@ int main(int argc, char** argv)
   // This is the initialization motion, necessary that the known free space allows the planning
   // of initial paths.
   ROS_INFO("Starting the planner: Performing initialization motion");
-  for (double i = 0; i <= 0.5; i = i + 0.1) {
-    nh.param<double>("exploration/wp_x", trajectory_point.position_W.x(), 0.0);
-    nh.param<double>("exploration/wp_y", trajectory_point.position_W.y(), 0.0);
-    nh.param<double>("exploration/wp_z", trajectory_point.position_W.z(), 1.0);
-    samples_array.header.seq = n_seq;
-    samples_array.header.stamp = ros::Time::now();
-    samples_array.points.clear();
-    n_seq++;
-    tf::Quaternion quat = tf::Quaternion(tf::Vector3(0.0, 0.0, 1.0), M_PI * i);
-    trajectory_point.setFromYaw(tf::getYaw(quat));
-    mav_msgs::msgMultiDofJointTrajectoryPointFromEigen(trajectory_point, &trajectory_point_msg);
-    samples_array.points.push_back(trajectory_point_msg);
-    trajectory_pub.publish(trajectory_point_msg);
-    ros::Duration(1.0).sleep();
-  }
-  trajectory_point.position_W.x() -= 2.0;
-  trajectory_point.position_W.y() += 0.5;
-  // trajectory_point.position_W.z() -= 0.25;
+   // Get current pose and move forward 1 meter
+  geometry_msgs::PoseStamped::ConstPtr init_pose =
+      ros::topic::waitForMessage<geometry_msgs::PoseStamped>("pose");
+  double init_yaw = tf2::getYaw(init_pose->pose.orientation);
+  trajectory_point.position_W.x() = init_pose->pose.position.x + 1.0 * std::cos(init_yaw);
+  trajectory_point.position_W.y() = init_pose->pose.position.y + 1.0 * std::sin(init_yaw);
+  trajectory_point.position_W.z() = init_pose->pose.position.z;
   samples_array.header.seq = n_seq;
   samples_array.header.stamp = ros::Time::now();
   samples_array.points.clear();
@@ -120,11 +110,11 @@ int main(int argc, char** argv)
   mav_msgs::msgMultiDofJointTrajectoryPointFromEigen(trajectory_point, &trajectory_point_msg);
   samples_array.points.push_back(trajectory_point_msg);
   trajectory_pub.publish(trajectory_point_msg);
-  ros::Duration(1.0).sleep();
+  ros::Duration(5.0).sleep();
   
   // Start planning: The planner is called and the computed path sent to the controller.
   int iteration = 0;
-  ros::Rate rate(1);
+  ros::Rate rate(10);
   nbvplanner::volume_srv volumeSrv;
   while (ros::ok()) {
     ros::spinOnce();
@@ -141,6 +131,7 @@ int main(int argc, char** argv)
         n_seq++;
         if (planSrv.response.path.size() == 0) {
           ros::Duration(1.0).sleep();
+          current_goal_reached = true;
         }
         else {
           geometry_msgs::PoseArray goals;
@@ -151,13 +142,6 @@ int main(int argc, char** argv)
             goals.poses.push_back(planSrv.response.path[i]);
           }
           goals_pub.publish(goals);
-          // while (!current_goal_reached)
-          // {
-          //   ros::spinOnce();
-          //   ros::Duration(dt).sleep();
-          // }
-          // current_goal_reached = false;
-          // std::cout << "Current goal reached!" << std::endl;
         }
       } else {
         ROS_WARN_THROTTLE(1, "Planner not reachable");
@@ -168,9 +152,7 @@ int main(int argc, char** argv)
     volumeSrv.request.header.stamp = ros::Time::now();
     volumeSrv.request.header.seq = iteration;
     volumeSrv.request.header.frame_id = parent_frame_id;
-    if(ros::service::call("volume_service", volumeSrv)){
-      ROS_INFO("Volume updated.");
-    }
+    ros::service::call("volume_service", volumeSrv);
     iteration++;
     rate.sleep();
   }

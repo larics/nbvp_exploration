@@ -53,6 +53,7 @@ nbvInspection::nbvPlanner<stateVec>::nbvPlanner(const ros::NodeHandle& nh,
   plannerService_ = nh_.advertiseService("nbvplanner",
                                          &nbvInspection::nbvPlanner<stateVec>::plannerCallback,
                                          this);
+  testService_ = nh_.advertiseService("test", &nbvInspection::nbvPlanner<stateVec>::testCallback, this);
   posClient_ = nh_.subscribe("pose", 10, &nbvInspection::nbvPlanner<stateVec>::posCallback, this);
   odomClient_ = nh_.subscribe("odometry", 10, &nbvInspection::nbvPlanner<stateVec>::odomCallback, this);
 
@@ -136,13 +137,6 @@ bool nbvInspection::nbvPlanner<stateVec>::volumeCallback(nbvplanner::volume_srv:
   allVolumes.data[3] = unmappedVolume;
   allVolumes.data[4] = timeNow;
   volumesPub_.publish(allVolumes);
-
-  if(params_.updateDegressiveCoeff_){
-    manager_->calculateDerivation(volumes, timeNow);
-    tree_->updateCoeff();
-  }
-
-
   return true;
 }
 
@@ -170,14 +164,16 @@ bool nbvInspection::nbvPlanner<stateVec>::plannerCallback(nbvplanner::nbvp_srv::
   }
   res.path.clear();
 
-  //Function for returning to origin
-  if(returnToOrigin && ros::ok()){
-    ROS_INFO_STREAM("Returning to origin..." << "(" << tree_->getHistorySize() << ")");
+  ROS_WARN_STREAM("History size: " << tree_->getHistorySize());
+  // Function for resolving dead ends
+  if(resolveDeadEnd && ros::ok()){
+    ROS_WARN("Resolving dead end...");
     res.path = tree_->getReturnEdge(req.header.frame_id);
-      if(tree_->getHistorySize() == 0){
-        ROS_INFO("Successfully returned to origin. Finding best gain...");
-        returnToOrigin = false;
-      }
+    ROS_WARN_STREAM("History dead end size: " << tree_->getHistoryDeadEndSize());
+    if(tree_->getHistoryDeadEndSize() == 0){
+        ROS_INFO("Successfully returned to the best node. Continue exploration...");
+        resolveDeadEnd = false;
+    }
     return true;
   }
 
@@ -190,24 +186,25 @@ bool nbvInspection::nbvPlanner<stateVec>::plannerCallback(nbvplanner::nbvp_srv::
   double computationTime1, computationTime2;
   ros::Time computationStartTime1 = ros::Time::now();
   while ((!tree_->gainFound() || tree_->getCounter() < params_.initIterations_) && ros::ok()) {
-    //if (tree_->gain() < pow(10,6)){ 
-    if (tree_->getCounter() > params_.cuttoffIterations_){
-        double totalVolume = (params_.maxX_ - params_.minX_) * 
-                             (params_.maxY_ - params_.minY_) * 
-                             (1.0 + params_.maxZ_ - params_.minZ_);
-      if(params_.returnToOrigin_ && !manager_->checkExploredVolumeShare(totalVolume, 0.70)){
-        ROS_INFO("No gain found and more than 30 percent undiscovered, returning to origin");
+    if (tree_->getCounter() > params_.cuttoffIterations_){  
+      double totalVolume = (params_.maxX_ - params_.minX_) * 
+                            (params_.maxY_ - params_.minY_) * 
+                            (params_.maxZ_ - params_.minZ_);
+      if(params_.resolveDeadEnd_ && 
+        !manager_->checkExploredVolumeShare(totalVolume, 0.98) && 
+        tree_->getBestGainValue() < params_.threshold_gain_){
+        ROS_ERROR("Gain is small and more than 30% unexplored - dead end detected");
         res.path = tree_->getReturnEdge((req.header.frame_id));
-        returnToOrigin = true;
+        resolveDeadEnd = true;
         return true;
       } else {
-          ROS_INFO("No gain found, shutting down");
-          ros::shutdown();
+          ROS_WARN("Exploration completed, shutting down node");
+          // ros::shutdown();
           // system("tmux kill-session -t single_kopter");
           return true;
         }
     }
-    if (loopCount > 1000 * (tree_->getCounter() + 1)) {
+    if (loopCount > 100000 * (tree_->getCounter() + 1)) {
       ROS_INFO_THROTTLE(1, "Exceeding maximum failed iterations, return to previous point!");
       res.path = tree_->getPathBackToPrevious(req.header.frame_id);
       return true;
@@ -218,23 +215,22 @@ bool nbvInspection::nbvPlanner<stateVec>::plannerCallback(nbvplanner::nbvp_srv::
   computationTime1 = (ros::Time::now() - computationStartTime1).toSec();
   ROS_INFO("While loop lasted %6.15fs", computationTime1);
 
-  //Function for detecting if gain is far away, used for history tracking method
+  // Resolve dead end
   ros::Time computationStartTime2 = ros::Time::now();
-    if(params_.returnToOrigin_){
-      if(tree_->getBestGainValue() < pow(10,-3)) {
-        double totalVolume = (params_.maxX_ - params_.minX_) * 
-               (params_.maxY_ - params_.minY_) * 
-               (3.0- params_.minZ_);  //params_.maxZ_
-        if( !manager_->checkExploredVolumeShare(totalVolume, 0.70)){
-          ROS_INFO("Gain less than 1e-3 and more than 30 percent undiscovered, returning to origin");
-          res.path = tree_->getReturnEdge((req.header.frame_id));
-          returnToOrigin = true;
-          return true;
-        }
-      }
+  if(params_.resolveDeadEnd_ && tree_->getBestGainValue() < params_.threshold_gain_) {
+    double totalVolume = (params_.maxX_ - params_.minX_) * 
+                        (params_.maxY_ - params_.minY_) * 
+                        (1+ params_.maxZ_ - params_.minZ_); 
+    if(!manager_->checkExploredVolumeShare(totalVolume, 0.98)){
+      ROS_ERROR("Gain less than threshold, exploration not completed - dead end detected!");
+      res.path = tree_->getReturnEdge((req.header.frame_id));
+      resolveDeadEnd = true;
+      return true;
     }
-  computationTime2 = (ros::Time::now() - computationStartTime2).toSec();
-  ROS_INFO("Function for gain lasted %6.15fs", computationTime2);
+    ROS_WARN("Gain less than 1e-1 but almost all explored!");
+  }
+  // computationTime2 = (ros::Time::now() - computationStartTime2).toSec();
+  // ROS_INFO("Function for gain lasted %6.15fs", computationTime2);
   // Extract the best edge.
   res.path = tree_->getBestPathNodes(req.header.frame_id);
 
@@ -251,6 +247,50 @@ bool nbvInspection::nbvPlanner<stateVec>::plannerCallback(nbvplanner::nbvp_srv::
   allTimes.data[1] = computationTime2;
   allTimes.data[2] = computationTime;
   compTimesPub_.publish(allTimes);
+  return true;
+}
+
+template<typename stateVec>
+bool nbvInspection::nbvPlanner<stateVec>::testCallback(std_srvs::EmptyRequest& req,
+                                                          std_srvs::EmptyResponse& res)
+{
+  ros::Time computationStartTime = ros::Time::now();
+  // Check that planner is ready to compute path.
+  if (!ros::ok()) {
+    ROS_INFO_THROTTLE(1, "Exploration finished. Not planning any further moves.");
+    return true;
+  }
+  if (!ready_) {
+    ROS_ERROR_THROTTLE(1, "Planner not set up: Planner not ready!");
+    return true;
+  }
+  if (manager_ == NULL) {
+    ROS_ERROR_THROTTLE(1, "Planner not set up: No octomap available!");
+    return true;
+  }
+  if (manager_->getMapSize().norm() <= 0.0) {
+    ROS_ERROR_THROTTLE(1, "Planner not set up: Octomap is empty!");
+    return true;
+  }
+
+  // Clear old tree and reinitialize.
+  tree_->clear();
+  tree_->initialize();
+
+  nbvInspection::RrtTree * rrtTree = new nbvInspection::RrtTree(manager_); 
+  nbvInspection::RrtTree::StateVec startState;
+  nbvInspection::RrtTree::StateVec endState;
+
+  startState[0] = -1;
+  startState[1] = 0;
+  startState[2] = 0.7;
+
+  endState[0] = -2;
+  endState[1] = 0;
+  endState[2] = 0.7;
+  rrtTree->setParams(params_);
+  double information_gain = rrtTree->samplePathWithCubes(startState, endState, "mavros/world");
+  std::cout << "Information gain: " << information_gain << std::endl;
   return true;
 }
 
@@ -426,6 +466,11 @@ bool nbvInspection::nbvPlanner<stateVec>::setParams()
     ROS_WARN("No zero gain value specified. Looking for %s. Default is 0.0.",
              (ns + "/nbvp/gain/zero").c_str());
   }
+  params_.threshold_gain_ = 0.1;
+  if (!ros::param::get(ns + "/nbvp/gain/threshold", params_.threshold_gain_)) {
+    ROS_WARN("No threshold gain value specified. Looking for %s. Default is 0.1.",
+             (ns + "/nbvp/gain/threshold").c_str());
+  }
   params_.dOvershoot_ = 0.5;
   if (!ros::param::get(ns + "/system/bbx/overshoot", params_.dOvershoot_)) {
     ROS_WARN(
@@ -436,13 +481,9 @@ bool nbvInspection::nbvPlanner<stateVec>::setParams()
   if (!ros::param::get(ns + "/nbvp/gain/visualization", params_.gainVisualization_)) {
     ROS_WARN("Gain visualization is off by default. Turn on with %s: true", (ns + "/nbvp/gain/visualization").c_str());
   }
-    params_.updateDegressiveCoeff_ = false;
-  if (!ros::param::get(ns + "/nbvp/gain/update_deg_coeff", params_.updateDegressiveCoeff_)) {
-    ROS_WARN("Degressive coeff update is off by default. Turn on with %s: true", (ns + "/nbvp/gain/update_deg_coeff").c_str());
-  }
-    params_.returnToOrigin_ = false;
-  if (!ros::param::get(ns + "/nbvp/tree/return_to_origin", params_.returnToOrigin_)) {
-    ROS_WARN("Return to orign is off by default. Turn on with %s: true", (ns + "/nbvp/tree/return_to_origin").c_str());
+  params_.resolveDeadEnd_ = false;
+  if (!ros::param::get(ns + "/nbvp/tree/resolve_dead_end", params_.resolveDeadEnd_)) {
+    ROS_WARN("Return to best node is off by default. Turn on with %s: true", (ns + "/nbvp/tree/resolve_dead_end").c_str());
   }
   params_.log_throttle_ = 0.5;
   if (!ros::param::get(ns + "/nbvp/log/throttle", params_.log_throttle_)) {

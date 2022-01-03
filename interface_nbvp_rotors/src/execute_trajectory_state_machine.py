@@ -64,6 +64,8 @@ class UavExplorationSm:
     # Initialize subscribers
     rospy.Subscriber('nbvp/goals', PoseArray, 
       self.targetPointsCallback, queue_size=1)
+    rospy.Subscriber('nbvp/target', PoseStamped,
+      self.targetPointCallback, queue_size=1)
     rospy.Subscriber('carrot/trajectory', MultiDOFJointTrajectoryPoint,
       self.referenceCallback, queue_size=1)
     rospy.Subscriber('mavros/global_position/local', Odometry, 
@@ -139,7 +141,7 @@ class UavExplorationSm:
         
         # Set up flags
         request.publish_path = False
-        request.publish_trajectory = False
+        request.publish_trajectory = True
         request.plan_path = False
         request.plan_trajectory = True
 
@@ -173,7 +175,6 @@ class UavExplorationSm:
           if self.checkTrajectoryExecuted() == True:
             print ("**********************************************")
             print ("In state:", self.state)
-            print ("Execution timeout factor triggered!")
             print ("**********************************************")
             print (" ")
             self.state = "end"
@@ -208,6 +209,12 @@ class UavExplorationSm:
   def targetPointsCallback(self, msg):
     self.target_poses = msg.poses
     self.final_pose = msg.poses[-1]
+    self.state = "plan"
+
+  def targetPointCallback(self, msg):
+    self.target_poses = []
+    self.target_poses.append(msg.pose)
+    self.final_pose = msg.pose
     self.state = "plan"
 
   def globalPositionCallback(self, msg):

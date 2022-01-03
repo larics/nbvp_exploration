@@ -21,6 +21,10 @@ target_link_libraries(exploration
 
 add_dependencies(exploration ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
+add_executable(test_rsc src/test_rsc.cpp)
+target_link_libraries(test_rsc
+  ${catkin_LIBRARIES}
+)
 add_executable(tf_node src/tf2_broadcaster.cpp)
 target_link_libraries(tf_node
   ${catkin_LIBRARIES}
